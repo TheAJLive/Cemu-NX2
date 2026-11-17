@@ -39,13 +39,14 @@ run `dist/switch2/build.sh`.
    while starting a game opens hbmenu.
 2. Copy `switch_launcher/switch2/cemu.nro` anywhere under `sdmc:/switch/`,
    for example `sdmc:/switch/cemu.nro`. Cemu returns to it after a game.
-3. Put your keys, games and the rest of the usual Cemu NX data under
-   `sdmc:/switch/cemu/` as on Switch 1. An existing Switch 1 setup on the SD
-   card can be reused as is. Games go in `sdmc:/switch/cemu/games/` by default
-   (`.wua`, `.wud`, `.wux`, `.wuhb` and `.rpx` all work). Disc keys go in
-   `sdmc:/switch/cemu/keys.txt`, one per line, as on desktop Cemu. WUA files
-   don't need them.
-4. Start a game holding R, then open Cemu from hbmenu.
+3. Start a game holding R and open Cemu from hbmenu once, then exit it. The
+   first launch creates the Cemu folders under `sdmc:/switch/cemu/` (`games`,
+   `graphicPacks`, `mlc01` and the rest). An existing Switch 1 setup on the SD
+   card can be reused as is, so this step can be skipped.
+4. Put your games in `sdmc:/switch/cemu/games/` (`.wua`, `.wud`, `.wux`,
+   `.wuhb` and `.rpx` all work). Disc keys go in `sdmc:/switch/cemu/keys.txt`,
+   one per line, as on desktop Cemu. WUA files don't need them.
+5. Start a game holding R, then open Cemu from hbmenu.
 
 ## What differs from Switch 1
 
