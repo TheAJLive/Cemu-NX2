@@ -68,8 +68,15 @@ run `dist/switch2/build.sh`.
 - **Memory:** with a 9GB game heap, Cemu's own heap gets about 4.3GB after the
   guest window, and the shader module cache is 256MB instead of 64MB.
 - **Not available yet:** USB drives (opening `usb:hs` breaks the next
-  homebrew under kaiHEN), SaltyNX reporting and the launcher's self-updater
-  (its release feed only has Switch 1 builds). HOME Menu shortcuts are left
+  homebrew under kaiHEN) and SaltyNX reporting. HOME Menu shortcuts are left
   out on purpose.
 - On exit, threads that were never joined are paused and their stacks are
   unmapped, so hbmenu gets its memory back when Cemu returns.
+
+## Launcher updates
+
+The launcher checks the latest release of `TheAJLive/Cemu-NX2` on GitHub.
+The Switch 2 launcher only takes a release asset named `cemu-switch2.nro`
+(any `.nro` with `switch2` in its name), and a Switch 1 launcher skips those, so
+both builds can be attached to the same release. Tag releases with the same
+version passed as `RELEASE_VERSION`; the updater only offers a newer tag.

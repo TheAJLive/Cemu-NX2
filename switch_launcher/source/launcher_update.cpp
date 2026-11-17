@@ -31,9 +31,14 @@
 namespace
 {
 	constexpr char kLatestReleaseUrl[] =
-		"https://api.github.com/repos/NaGaa95/Cemu-nx/releases/latest";
+		"https://api.github.com/repos/TheAJLive/Cemu-NX2/releases/latest";
 	constexpr char kReleaseAssetPrefix[] =
-		"https://github.com/NaGaa95/Cemu-nx/releases/download/";
+		"https://github.com/TheAJLive/Cemu-NX2/releases/download/";
+#if defined(__SWITCH2__)
+	constexpr char kPreferredAsset[] = "cemu-switch2.nro";
+#else
+	constexpr char kPreferredAsset[] = "cemu.nro";
+#endif
 	constexpr std::size_t kMaxReleaseResponse = 2 * 1024 * 1024;
 	constexpr std::uint64_t kMinimumNroSize = 1024 * 1024;
 	constexpr std::uint64_t kMaximumNroSize = 512ULL * 1024 * 1024;
@@ -293,14 +298,24 @@ namespace
 			if (lowerName.size() < 4 || lowerName.substr(lowerName.size() - 4) != ".nro" ||
 				size < kMinimumNroSize || size > kMaximumNroSize || !StartsWith(url, kReleaseAssetPrefix))
 				continue;
-			if (bestAsset < 0 || lowerName == "cemu.nro")
+			// Releases carry one NRO per console; never offer the other console's build.
+			const bool switch2Asset = lowerName.find("switch2") != std::string::npos;
+#if defined(__SWITCH2__)
+			if (!switch2Asset)
+				continue;
+			if (bestAsset < 0 || lowerName == kPreferredAsset)
+#else
+			if (switch2Asset)
+				continue;
+			if (bestAsset < 0 || lowerName == kPreferredAsset)
+#endif
 			{
 				bestAsset = static_cast<int>(index);
 				release.assetName = std::move(name);
 				release.assetUrl = std::move(url);
 				release.assetSize = size;
 				JsonString(assets[index], "digest", release.assetDigest);
-				if (lowerName == "cemu.nro")
+				if (lowerName == kPreferredAsset)
 					break;
 			}
 		}
@@ -685,11 +700,6 @@ bool LauncherUpdate_IsNewer(const std::string& candidate, const std::string& ins
 
 bool LauncherUpdate_StartCheck(const std::string& installedTag)
 {
-#if defined(__SWITCH2__)
-	// The release feed only carries Switch 1 builds.
-	(void)installedTag;
-	return false;
-#endif
 	{
 		std::scoped_lock lock(s_mutex);
 		if (s_state == LauncherUpdateState::Checking || s_state == LauncherUpdateState::Downloading ||

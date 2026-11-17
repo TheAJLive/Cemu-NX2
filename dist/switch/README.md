@@ -68,7 +68,7 @@ EXT2/3/4 support remains disabled.
 ## Launcher updates
 
 The SDL launcher checks the latest published release from
-`NaGaa95/Cemu-nx`. Upload the all-in-one launcher as a `.nro` release asset;
+`TheAJLive/Cemu-NX2`. Upload the all-in-one launcher as a `.nro` release asset;
 `cemu.nro` is preferred when a release contains more than one NRO.
 
 Set `RELEASE_VERSION` to the GitHub tag when making a release:

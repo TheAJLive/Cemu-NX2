@@ -33,4 +33,6 @@ make -j "$BUILD_JOBS" SWITCH2=1 RELEASE_VERSION="$RELEASE_VERSION" APP_VERSION="
 
 echo
 echo "Copy switch_launcher/switch2/cemu.nro anywhere under sdmc:/switch/"
+cp -f "$ROOT/switch_launcher/switch2/cemu.nro" "$ROOT/switch_launcher/switch2/cemu-switch2.nro"
+echo "Release asset: switch_launcher/switch2/cemu-switch2.nro"
 ls -la "$ROOT/switch_launcher/switch2/cemu.nro"

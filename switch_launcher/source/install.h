@@ -1,6 +1,11 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <vector>
+
+// Extracted titles (folders holding code/app.xml) at srcFolder or up to two
+// levels below it, so a folder with Game/Update/DLC inside installs at once.
+std::vector<std::string> cemu_findTitleFolders(const std::string &srcFolder);
 
 uint64_t cemu_peekTitleId(const std::string &srcFolder);
 
