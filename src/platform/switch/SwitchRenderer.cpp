@@ -182,7 +182,12 @@ void ConfigureMesaBackend(std::string_view backend)
 {
 	if (backend == "gl" || backend == "zink")
 	{
+#if defined(__SWITCH2__)
+		// OunceVK's only GL driver is Zink.
+		const bool zink = true;
+#else
 		const bool zink = backend == "zink";
+#endif
 		// Cemu already owns a dedicated Latte render thread. A second Mesa GL
 		// command thread only adds latency and complicates context shutdown.
 		setenv("MESA_SWITCH_GLTHREAD", "0", 1);

@@ -1145,7 +1145,9 @@ void PipelineCompiler::CompileThreadPool_Start()
 	s_compileThreadsShutdownSignal = false;
 	uint32 numCompileThreads;
 
-#if defined(__SWITCH__)
+#if defined(__SWITCH2__)
+	numCompileThreads = SwitchThread_WorkerCount(2, 4);
+#elif defined(__SWITCH__)
 	numCompileThreads = 2;
 #else
 	uint32 cpuCoreCount = GetPhysicalCoreCount();

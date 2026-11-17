@@ -22,6 +22,7 @@
 #include "platform/switch/SwitchMemoryBudget.h"
 #include "platform/switch/SwitchPlatform.h"
 #include "platform/switch/common/SwitchLaunchPolicy.h"
+#include "platform/switch/SwitchThread.h"
 #include <exception>
 void SwitchRendererThreadExit();
 #endif
@@ -164,7 +165,8 @@ void LatteThread_HandleOSScreen()
 int Latte_ThreadEntry()
 {
 	SetThreadName("LatteThread");
-#if defined(__SWITCH__)
+#if defined(__SWITCH2__)
+	SwitchThread_PinGpuThread();
 #endif
 	sint32 w,h;
 	WindowSystem::GetWindowPhysSize(w,h);

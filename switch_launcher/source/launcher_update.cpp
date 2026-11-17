@@ -685,6 +685,11 @@ bool LauncherUpdate_IsNewer(const std::string& candidate, const std::string& ins
 
 bool LauncherUpdate_StartCheck(const std::string& installedTag)
 {
+#if defined(__SWITCH2__)
+	// The release feed only carries Switch 1 builds.
+	(void)installedTag;
+	return false;
+#endif
 	{
 		std::scoped_lock lock(s_mutex);
 		if (s_state == LauncherUpdateState::Checking || s_state == LauncherUpdateState::Downloading ||

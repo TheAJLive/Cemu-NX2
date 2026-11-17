@@ -67,6 +67,7 @@ namespace
 	std::atomic<SwitchGamePadLayout> s_lastCompositeLayout{SwitchGamePadLayout::Right};
 	std::atomic_bool s_gamePadLayoutChanged{false};
 	std::string s_rendererBackend{"vk"};
+	std::string s_launcherPath{"sdmc:/switch/cemu/cemu.nro"};
 
 	constexpr uint64_t kGameBootBoostHandoffTimeoutNs = 300'000'000'000ULL;
 
@@ -97,6 +98,11 @@ void SwitchPlatform_ApplyWindowSurfaceSize(int width, int height)
 bool SwitchPlatform_ShouldReturnToLauncher()
 {
 	return s_returnToLauncher.load(std::memory_order_acquire);
+}
+
+const std::string& SwitchPlatform_LauncherPath()
+{
+	return s_launcherPath;
 }
 
 bool SwitchPlatform_UseTripleBuffer()
@@ -258,8 +264,14 @@ namespace WindowSystem
 	static AppletHookCookie s_appletHookCookie{};
 	static bool s_appletHooked = false;
 
+#if defined(__SWITCH2__)
+	// The Switch 2's built-in panel is 1080p.
+	static constexpr int kHandheldWidth = 1920;
+	static constexpr int kHandheldHeight = 1080;
+#else
 	static constexpr int kHandheldWidth = 1280;
 	static constexpr int kHandheldHeight = 720;
+#endif
 	static constexpr int kDockedWidth = 1920;
 	static constexpr int kDockedHeight = 1080;
 
@@ -453,6 +465,10 @@ namespace WindowSystem
 			n_config.Load();
 
 		LoadHandoff();
+		// The launcher can live anywhere on the SD card; go back to where it was started from.
+		const std::string launcherPath = Handoff("launcher");
+		if (launcherPath.rfind("sdmc:/", 0) == 0)
+			s_launcherPath = launcherPath;
 #if defined(ENABLE_DEKO3D)
 		s_rendererBackend = "deko3d";
 		GetConfig().graphic_api = kDeko3D;

@@ -17,6 +17,9 @@
 #include "common/SwitchLaunchPolicy.h"
 #include "platform/switch/SwitchThread.h"
 #include "platform/switch/SwitchSaltyNX.h"
+#if defined(__SWITCH2__)
+#include "platform/switch/SwitchExitCleanup.h"
+#endif
 #include "util/MemMapper/MemMapper.h"
 #include "util/MemMapper/SwitchGuestMemory.h"
 
@@ -248,12 +251,14 @@ static void SwitchPlatformExit()
 {
 	SwitchPlatformExit();
 	cemuLog_shutdown();
+#if defined(__SWITCH2__)
+	SwitchExitCleanup_Run();
+#endif
 	std::_Exit(status);
 }
 
 // Matches EXIT_DETECTION_STR in switch_launcher/fwd/main.c.
 static constexpr const char* kForwarderExitSentinel = "__CEMU_FORWARDER_EXIT__";
-static constexpr const char* kLauncherPath = "sdmc:/switch/cemu/cemu.nro";
 
 static std::string ForwarderLauncherPath()
 {
@@ -298,7 +303,10 @@ static void ReturnToLauncher()
 	}
 
 	if (envHasNextLoad())
-		envSetNextLoad(kLauncherPath, kLauncherPath);
+	{
+		const std::string& launcherPath = SwitchPlatform_LauncherPath();
+		envSetNextLoad(launcherPath.c_str(), launcherPath.c_str());
+	}
 }
 
 int main(int argc, char* argv[])

@@ -290,8 +290,12 @@ static const Choice C_timer[]    = { {"1x (normal)","3"}, {"2x faster","2"}, {"4
                                      {"0.5x slower","4"}, {"0.25x slower","5"} };
 static const Choice C_bool[]     = { {"Off","false"}, {"On","true"} };
 static const Choice C_bool01[]   = { {"Off","0"}, {"On","1"} };
+#if defined(__SWITCH2__)
+static const Choice C_backend[]  = { {"Vulkan (OunceVK)","vk"}, {"OpenGL (Zink/OunceVK)","zink"} };
+#else
 static const Choice C_backend[]  = { {"Deko3D","deko3d"}, {"Vulkan (NVK)","vk"}, {"OpenGL (NVC0)","gl"},
                                      {"OpenGL (Zink/NVK)","zink"} };
+#endif
 static const Choice C_barriers[] = { {"Disabled","false"}, {"Enabled","true"} };
 static const Choice C_filter[]   = { {"Bilinear","0"}, {"Bicubic","1"}, {"Hermite","2"}, {"Nearest","3"} };
 static const Choice C_scaling[]  = { {"Keep aspect ratio","0"}, {"Stretch","1"} };
@@ -7733,9 +7737,15 @@ struct EmulatorPayload {
 
 static const EmulatorPayload &emulatorPayload(const std::string &renderer) {
   static const EmulatorPayload unified{EMU_NRO_SRC,EMU_HASH_SRC,EMU_NRO_DST,".emu_core_build"};
+#if defined(__SWITCH2__)
+  // Switch 2 ships only the unified OunceVK core.
+  (void)renderer;
+  return unified;
+#else
   static const EmulatorPayload deko{"romfs:/emu/cemu_deko3d.nro","romfs:/emu/cemu_deko3d.sha256",
                                     "sdmc:/switch/cemu/.emu/cemu_deko3d.nro",".emu_deko3d_build"};
   return renderer=="deko3d"?deko:unified;
+#endif
 }
 
 static bool ensureEmu(const EmulatorPayload &payload) {
@@ -8377,7 +8387,8 @@ static bool writeLaunchHandoff(const std::vector<CemuKV> &settings,const std::st
      !appendHandoffValue(handoff,"lsfg_performance",cemuKVGet(settings,"Wrapper/LSFGPerformance","true")) ||
      !appendHandoffValue(handoff,"usb_skylanders",cemuKVGet(settings,"UsbSkylanders","false")) ||
      !appendHandoffValue(handoff,"usb_infinity",cemuKVGet(settings,"UsbInfinity","false")) ||
-     !appendHandoffValue(handoff,"usb_dimensions",cemuKVGet(settings,"UsbDimensions","false")))
+     !appendHandoffValue(handoff,"usb_dimensions",cemuKVGet(settings,"UsbDimensions","false")) ||
+     !appendHandoffValue(handoff,"launcher",g_launcherNroPath))
     return false;
   if(!gamePath.empty()) {
     if(!appendHandoffValue(handoff,"game",gamePath)) return false;

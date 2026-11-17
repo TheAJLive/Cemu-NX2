@@ -21,7 +21,11 @@ namespace
 	std::mutex s_shaderModuleMutex;
 	std::list<RendererShaderVk*> s_shaderModules;
 	size_t s_shaderModuleBytes{};
+#if defined(__SWITCH2__)
+	constexpr size_t kShaderModuleCacheLimit = 256 * 1024 * 1024;
+#else
 	constexpr size_t kShaderModuleCacheLimit = 64 * 1024 * 1024;
+#endif
 }
 #endif
 
@@ -145,7 +149,9 @@ public:
 		if (m_threadsActive.exchange(true))
 			return;
 		// create thread pool
-#if defined(__SWITCH__)
+#if defined(__SWITCH2__)
+		const uint32 threadCount = 2;
+#elif defined(__SWITCH__)
 		const uint32 threadCount = 1;
 #else
 		const uint32 threadCount = 2;

@@ -41,6 +41,11 @@ inline unsigned AddressSpaceBits(uint64_t base, uint64_t size)
 inline Error AddressSpaceError(unsigned bits)
 {
 	if (bits == 39) return Error::None;
+#if defined(__SWITCH2__)
+	// kaiHEN runs homebrew inside a native Switch 2 game, whose address space
+	// may be laid out differently; only the small layouts lack the room.
+	if (bits == 0) return Error::None;
+#endif
 	if (bits == 36) return Error::AddressSpace36;
 	return bits ? Error::AddressSpaceUnsupported : Error::AddressSpaceUnknown;
 }

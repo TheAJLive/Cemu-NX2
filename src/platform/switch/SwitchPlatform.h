@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 enum class SwitchGamePadLayout
 {
 	Disabled,
@@ -18,6 +20,7 @@ void SwitchPlatform_NotifyGameFrameSubmitted();
 void SwitchPlatform_PollGameBootState();
 void SwitchPlatform_ApplyWindowSurfaceSize(int width, int height);
 bool SwitchPlatform_ShouldReturnToLauncher();
+const std::string& SwitchPlatform_LauncherPath();
 void SwitchPlatform_SetGamePadLayout(SwitchGamePadLayout layout);
 SwitchGamePadLayout SwitchPlatform_GetGamePadLayout();
 void SwitchPlatform_CycleGamePadMode();

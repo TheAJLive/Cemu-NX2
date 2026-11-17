@@ -932,6 +932,13 @@ std::string SmbBrowsePath(const SmbShare& share)
 
 bool InitializeUsb(std::string* error)
 {
+#if defined(__SWITCH2__)
+	// Opening usb:hs under kaiHEN leaves the next homebrew (hbmenu included)
+	// on a black screen until kaiHEN is started again.
+	if (error)
+		*error = "USB drives are not supported on Switch 2 yet";
+	return false;
+#endif
 	std::lock_guard<std::mutex> initLock(s_usbInitMutex);
 	if (s_usbInitialized.load(std::memory_order_acquire)) return true;
 

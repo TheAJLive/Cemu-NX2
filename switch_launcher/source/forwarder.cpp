@@ -658,7 +658,17 @@ bool patch_npdm(std::vector<u8> &npdm, u64 tid)
 
 void patch_nacp(NacpStruct &nacp, const std::string &name, const std::string &author, u64 tid)
 {
+#if defined(__SWITCH2__)
+    // libounce keeps the titles in a union that may hold compressed data
+    // (TitlesDataFormat 1); write them uncompressed.
+    if (nacp.titles_data_format != 0) {
+        std::memset(&nacp.lang_data, 0, sizeof(nacp.lang_data));
+        nacp.titles_data_format = 0;
+    }
+    for (auto &lang : nacp.lang_data.lang) {
+#else
     for (auto &lang : nacp.lang) {
+#endif
         if (!name.empty()) {
             std::memset(lang.name, 0, sizeof(lang.name));
             std::strncpy(lang.name, name.c_str(), sizeof(lang.name) - 1);
@@ -1507,6 +1517,12 @@ bool forwarder_create(const std::string &gameKey, const std::string &legacyGameK
                       const std::string &iconImgPath, char *err, std::size_t errSize)
 {
     if (err && errSize) err[0] = '\0';
+#if defined(__SWITCH2__)
+    // HOME Menu forwarders are Switch 1 NSPs; kaiHEN starts homebrew from hbmenu.
+    (void)gameKey; (void)legacyGameKey; (void)name; (void)author; (void)iconImgPath;
+    if (err && errSize) snprintf(err, errSize, "HOME Menu shortcuts are not supported on Switch 2.");
+    return false;
+#endif
 
     const bool validKey = !gameKey.empty() && gameKey.size() <= 255 &&
         std::all_of(gameKey.begin(), gameKey.end(), [](unsigned char c) {
@@ -1578,6 +1594,11 @@ bool forwarder_create_launcher(char *err, std::size_t errSize)
 {
     if (err && errSize)
         err[0] = '\0';
+#if defined(__SWITCH2__)
+    if (err && errSize)
+        snprintf(err, errSize, "HOME Menu shortcuts are not supported on Switch 2.");
+    return false;
+#endif
     std::vector<u8> nso, npdm, nacpRaw, iconJpeg;
     if (!readFile("romfs:/fwd/hbl.nso", nso) || !readFile("romfs:/fwd/hbl.npdm", npdm) ||
         !readFile("romfs:/fwd/default.nacp", nacpRaw) || nacpRaw.size() < sizeof(NacpStruct) ||

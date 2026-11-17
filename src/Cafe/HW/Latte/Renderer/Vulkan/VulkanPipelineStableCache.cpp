@@ -47,7 +47,10 @@ uint32 VulkanPipelineStableCache::BeginLoading(uint64 cacheTitleId)
 	// start async compilation threads
 	m_compilationQueue.clear();
 
-#if defined(__SWITCH__)
+#if defined(__SWITCH2__)
+	// The cache loads before the game runs, so every granted core is free.
+	m_numCompilationThreads = std::clamp(SwitchThread_AllowedCoreCount(), 1, 8);
+#elif defined(__SWITCH__)
 	m_numCompilationThreads = 1;
 #else
 	uint32 cpuCoreCount = GetPhysicalCoreCount();
