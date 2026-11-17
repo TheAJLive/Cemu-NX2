@@ -32,5 +32,5 @@ make SWITCH2=1 RELEASE_VERSION="$RELEASE_VERSION" APP_VERSION="$RELEASE_VERSION"
 make -j "$BUILD_JOBS" SWITCH2=1 RELEASE_VERSION="$RELEASE_VERSION" APP_VERSION="$RELEASE_VERSION"
 
 echo
-echo "Copy switch_launcher/switch2/cemu.nro to sdmc:/switch/cemu/cemu.nro"
+echo "Copy switch_launcher/switch2/cemu.nro anywhere under sdmc:/switch/"
 ls -la "$ROOT/switch_launcher/switch2/cemu.nro"

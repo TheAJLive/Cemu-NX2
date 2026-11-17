@@ -17,6 +17,7 @@ TOPDIR ?= $(CURDIR)
 SWITCH2 ?= 0
 ifeq ($(SWITCH2),1)
 include $(DEVKITPRO)/libounce/switch2_rules
+APP_AUTHOR	:=	naga - NX2 Port by TheAJLive
 CORE_BUILD	:=	build_switch2
 TARGET		:=	switch2/cemu
 BUILD		:=	build_switch2

@@ -68,7 +68,8 @@ run `dist/switch2/build.sh`.
 - **Memory:** with a 9GB game heap, Cemu's own heap gets about 4.3GB after the
   guest window, and the shader module cache is 256MB instead of 64MB.
 - **Not available yet:** USB drives (opening `usb:hs` breaks the next
-  homebrew under kaiHEN), SaltyNX reporting, HOME Menu shortcuts and the
-  launcher's self-updater (its release feed only has Switch 1 builds).
+  homebrew under kaiHEN), SaltyNX reporting and the launcher's self-updater
+  (its release feed only has Switch 1 builds). HOME Menu shortcuts are left
+  out on purpose.
 - On exit, threads that were never joined are paused and their stacks are
   unmapped, so hbmenu gets its memory back when Cemu returns.
