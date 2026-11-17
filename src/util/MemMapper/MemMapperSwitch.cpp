@@ -186,9 +186,24 @@ namespace MemMapper
 				releasePoolSource(allocation, metadata.size);
 		}
 
+		Result unmapPoolMapping(const PoolMap& mapping)
+		{
+#if defined(__SWITCH2__)
+			(void)mapping;
+			return KERNELRESULT(NotImplemented);
+#else
+			return svcControlCodeMemory(mapping.handle, CodeMapOperation_UnmapOwner, mapping.dst, mapping.size, 0);
+#endif
+		}
+
 		bool poolCommit(void* dst, size_t size, bool allowHeapSource = false, bool retained = false,
 			bool clearMemory = true)
 		{
+#if defined(__SWITCH2__)
+			// kaiHEN's game policy ends the process on any CodeMemory syscall.
+			(void)dst; (void)size; (void)allowHeapSource; (void)retained; (void)clearMemory;
+			return false;
+#else
 			if ((reinterpret_cast<uintptr_t>(dst) & (kPageSize - 1)) != 0 || !alignToPage(size, size))
 				return false;
 			void* source = nullptr;
@@ -229,6 +244,7 @@ namespace MemMapper
 				std::memset(dst, 0, size);
 			s_poolMaps.push_back({dst, size, handle, source, heapSource, retained});
 			return true;
+#endif
 		}
 
 		void poolRelease(void* dst, size_t size)
@@ -250,7 +266,7 @@ namespace MemMapper
 					continue;
 				}
 				const PoolMap mapping = s_poolMaps[i];
-				Result rc = svcControlCodeMemory(mapping.handle, CodeMapOperation_UnmapOwner, mapping.dst, mapping.size, 0);
+				Result rc = unmapPoolMapping(mapping);
 				if (R_FAILED(rc))
 				{
 					++i;
@@ -377,6 +393,85 @@ namespace MemMapper
 			return poolCommit(dst, size, true);
 		}
 
+#if defined(__SWITCH2__)
+		// kaiHEN's game policy has no CodeMemory syscalls, and svcMapMemory
+		// only reaches the stack region, which cannot be relied on to hold the
+		// whole guest window. So the 4GB window is cut straight out of the
+		// guest pool on the heap: every guest range is already backed, and the
+		// GPU can import any of it.
+		constexpr size_t kGuestWindowAlignment = 0x200000;
+		bool s_heapGuest = false;
+		std::map<uintptr_t, size_t> s_backedReservations;
+
+		// The window is taken from the top of the pool, so direct allocations
+		// made before memory_init cannot push it out of range.
+		void* heapGuestReserve()
+		{
+			ensurePool();
+			const size_t guestSize = SwitchGuestMemoryLayout::GuestSize;
+			// A window released earlier comes back as a free block.
+			for (auto it = s_freePoolBlocks.begin(); it != s_freePoolBlocks.end(); ++it)
+			{
+				const uintptr_t base = (it->first + kGuestWindowAlignment - 1) & ~(uintptr_t)(kGuestWindowAlignment - 1);
+				if (base - it->first > it->second || it->second - (base - it->first) < guestSize)
+					continue;
+				const uintptr_t blockStart = it->first;
+				const uintptr_t blockEnd = it->first + it->second;
+				s_freePoolBlocks.erase(it);
+				if (base != blockStart)
+					s_freePoolBlocks.emplace(blockStart, base - blockStart);
+				if (base + guestSize != blockEnd)
+					s_freePoolBlocks.emplace(base + guestSize, blockEnd - (base + guestSize));
+				s_heapGuest = true;
+				std::snprintf(s_guestBackingNote, sizeof(s_guestBackingNote),
+					"heap-backed 4GB window at 0x%llx, readable by the GPU", (unsigned long long)base);
+				return reinterpret_cast<void*>(base);
+			}
+			if (s_poolCursor == 0 || s_poolEnd < s_poolCursor || s_poolEnd - s_poolCursor < guestSize)
+			{
+				std::snprintf(s_guestBackingNote, sizeof(s_guestBackingNote),
+					"guest pool too small for the 4GB window (%lluMB free)",
+					(unsigned long long)((s_poolEnd > s_poolCursor ? s_poolEnd - s_poolCursor : 0) >> 20));
+				return nullptr;
+			}
+			const uintptr_t base = (s_poolEnd - guestSize) & ~(uintptr_t)(kGuestWindowAlignment - 1);
+			if (base < s_poolCursor)
+			{
+				std::snprintf(s_guestBackingNote, sizeof(s_guestBackingNote),
+					"guest pool too small for an aligned 4GB window");
+				return nullptr;
+			}
+			if (base + guestSize != s_poolEnd)
+				s_freePoolBlocks.emplace(base + guestSize, s_poolEnd - (base + guestSize));
+			s_poolEnd = base;
+			s_heapGuest = true;
+			std::snprintf(s_guestBackingNote, sizeof(s_guestBackingNote),
+				"heap-backed 4GB window at 0x%llx, readable by the GPU", (unsigned long long)base);
+			return reinterpret_cast<void*>(base);
+		}
+
+		void heapGuestRelease()
+		{
+			if (!s_heapGuest)
+				return;
+			releasePoolSource(reinterpret_cast<void*>(s_reserveBase), SwitchGuestMemoryLayout::GuestSize);
+			s_heapGuest = false;
+		}
+
+		bool backedCommit(void* dst, size_t size)
+		{
+			const uintptr_t address = reinterpret_cast<uintptr_t>(dst);
+			auto it = s_backedReservations.upper_bound(address);
+			if (it == s_backedReservations.begin())
+				return false;
+			--it;
+			if (address - it->first >= it->second || size > it->second - (address - it->first))
+				return false;
+			std::memset(dst, 0, size);
+			return true;
+		}
+#endif
+
 		bool chunkCommit(void* dst, size_t size)
 		{
 			const uintptr_t chunkSize = SwitchMemoryBudget_GetJumpTableChunkSize();
@@ -411,6 +506,30 @@ namespace MemMapper
 			return nullptr;
 		AddressReservation reservation{};
 		const bool isGuest = !baseAddr && alignedSize == SwitchGuestMemoryLayout::GuestSize;
+#if defined(__SWITCH2__)
+		if (isGuest)
+		{
+			void* window = heapGuestReserve();
+			if (!window)
+				throw SwitchLaunch::Failure(SwitchLaunch::Error::HostMemoryUnavailable, s_guestBackingNote);
+			reservation.base = window;
+			reservation.size = alignedSize;
+			s_reservations.push_back(reservation);
+			s_reserveBase = reinterpret_cast<uintptr_t>(window);
+			s_reserveSize = alignedSize;
+			cemuLog_log(LogType::Force, "Switch: {}", s_guestBackingNote);
+			return window;
+		}
+		if (!baseAddr)
+		{
+			// Without CodeMemory a reservation cannot be committed later, so
+			// back it up front.
+			void* backing = directAllocate(alignedSize);
+			if (backing)
+				s_backedReservations.emplace(reinterpret_cast<uintptr_t>(backing), alignedSize);
+			return backing;
+		}
+#endif
 		bool stackPlacement = false;
 		if (isGuest && s_guestImportRequired)
 		{
@@ -467,6 +586,28 @@ namespace MemMapper
 		size_t alignedSize = 0;
 		if (!baseAddr || !alignToPage(size, alignedSize))
 			return;
+#if defined(__SWITCH2__)
+		if (auto backed = s_backedReservations.find(reinterpret_cast<uintptr_t>(baseAddr)); backed != s_backedReservations.end())
+		{
+			s_backedReservations.erase(backed);
+			directRelease(baseAddr);
+			return;
+		}
+		if (s_heapGuest && reinterpret_cast<uintptr_t>(baseAddr) == s_reserveBase)
+		{
+			heapGuestRelease();
+			for (auto it = s_reservations.begin(); it != s_reservations.end(); ++it)
+			{
+				if (it->base == baseAddr)
+				{
+					s_reservations.erase(it);
+					break;
+				}
+			}
+			s_reserveBase = s_reserveSize = 0;
+			return;
+		}
+#endif
 		for (auto it = s_reservations.begin(); it != s_reservations.end(); ++it)
 		{
 			if (it->base != baseAddr || it->size != alignedSize)
@@ -507,8 +648,19 @@ namespace MemMapper
 			{
 				if (size > s_reserveSize - (a - s_reserveBase))
 					return nullptr;
+#if defined(__SWITCH2__)
+				if (s_heapGuest)
+				{
+					std::memset(baseAddr, 0, size);
+					return baseAddr;
+				}
+#endif
 				return commitGuest(baseAddr, size) ? baseAddr : nullptr;
 			}
+#if defined(__SWITCH2__)
+			if (!s_backedReservations.empty())
+				return backedCommit(baseAddr, size) ? baseAddr : nullptr;
+#endif
 			if (a >= s_instBase && a < s_instEnd)
 				return chunkCommit(baseAddr, size) ? baseAddr : nullptr;
 			return baseAddr;
@@ -521,6 +673,11 @@ namespace MemMapper
 	void FreeMemory(void* baseAddr, size_t size, bool fromReservation)
 	{
 		std::lock_guard<std::mutex> lock(s_mutex);
+#if defined(__SWITCH2__)
+		// Heap-backed guest pages and backed reservations stay committed.
+		if (fromReservation)
+			return;
+#endif
 		if (fromReservation && baseAddr)
 			poolRelease(baseAddr, size);
 		else if (!fromReservation && baseAddr)
@@ -544,6 +701,13 @@ namespace MemMapper
 	{
 		SwitchGuestMemory::DiscardEarly("mapper shutdown before adoption");
 		std::lock_guard<std::mutex> lock(s_mutex);
+#if defined(__SWITCH2__)
+		heapGuestRelease();
+		for (const auto& [address, size] : s_backedReservations)
+			directRelease(reinterpret_cast<void*>(address));
+		s_backedReservations.clear();
+		s_reservations.clear();
+#endif
 		for (size_t i = 0; i < s_stackMaps.size();)
 		{
 			const Result rc = svcUnmapMemory(s_stackMaps[i].dst, s_stackMaps[i].source, s_stackMaps[i].size);
@@ -560,8 +724,7 @@ namespace MemMapper
 		for (size_t i = 0; i < s_poolMaps.size();)
 		{
 			const PoolMap mapping = s_poolMaps[i];
-			const Result rc = svcControlCodeMemory(mapping.handle, CodeMapOperation_UnmapOwner,
-			                                       mapping.dst, mapping.size, 0);
+			const Result rc = unmapPoolMapping(mapping);
 			if (R_FAILED(rc))
 			{
 				cemuLog_log(LogType::Force, "Switch: guest code map at 0x{:x} ({}MB) not released: 0x{:08x}",

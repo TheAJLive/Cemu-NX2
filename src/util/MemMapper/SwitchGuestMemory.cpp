@@ -129,6 +129,14 @@ namespace MemMapper::SwitchGuestMemory
 		if (s_attempted)
 			return;
 		s_attempted = true;
+#if defined(__SWITCH2__)
+		// The guest window is carved from the heap instead (MemMapperSwitch).
+		std::snprintf(s_note, sizeof(s_note), "no stack-region window: the guest window is heap-backed");
+		virtmemLock();
+		captureStack(s_beforeServices);
+		virtmemUnlock();
+		return;
+#endif
 		virtmemLock();
 		captureStack(s_beforeServices);
 		Range aslr{}, heap{}, alias{};

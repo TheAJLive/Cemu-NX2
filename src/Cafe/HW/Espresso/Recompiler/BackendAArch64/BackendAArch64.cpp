@@ -1238,7 +1238,14 @@ void AArch64GenContext_t::atomic_cmp_store(IMLInstruction* imlInstruction)
 	WReg valReg = gpReg<WReg>(imlInstruction->op_atomic_compare_store.regWriteValue);
 	WReg cmpValReg = gpReg<WReg>(imlInstruction->op_atomic_compare_store.regCompareValue);
 
-	if (s_cpu.isAtomicSupported())
+#if defined(__SWITCH2__)
+	// xbyak's Switch CPU table describes the Switch 1's A57; the Switch 2's
+	// A78C always has LSE.
+	const bool useLse = true;
+#else
+	const bool useLse = s_cpu.isAtomicSupported();
+#endif
+	if (useLse)
 	{
 		mov(TEMP_GPR2.wReg, cmpValReg);
 		add(TEMP_GPR1.xReg, MEM_BASE_REG, eaReg, ExtMod::UXTW);

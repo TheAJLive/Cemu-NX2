@@ -11,10 +11,19 @@ namespace
 	constexpr size_t MiB = 1024 * 1024;
 	constexpr size_t kHeapAlignment = 2 * MiB;
 	constexpr size_t kBudgetAlignment = 32 * MiB;
+#if defined(__SWITCH2__)
+	// The whole 4GB guest window lives in the pool (see MemMapperSwitch), plus
+	// room to align it.
+	constexpr size_t kMandatoryGuestBacking = 0x100000000ull + kHeapAlignment;
+	constexpr size_t kMinimumNewlibHeap = 1024 * MiB;
+	constexpr size_t kNewlibHeapDivisor = 5;
+#else
 	constexpr size_t kMandatoryGuestBacking = 0x563F0000ull;
+	constexpr size_t kMinimumNewlibHeap = 768 * MiB;
+	constexpr size_t kNewlibHeapDivisor = 3;
+#endif
 	constexpr size_t kMinimumFlexiblePool = 224 * MiB;
 	constexpr size_t kMaximumFlexiblePool = 640 * MiB;
-	constexpr size_t kMinimumNewlibHeap = 768 * MiB;
 	constexpr size_t kJumpTableChunkSize = 64 * MiB;
 
 	size_t AlignUp(size_t value, size_t alignment)
@@ -69,7 +78,7 @@ size_t SwitchMemoryBudget_ComputeGuestPoolSize(size_t heapTotal)
 		kMinimumFlexiblePool, kMaximumFlexiblePool);
 	size_t desiredPool = kMandatoryGuestBacking + flexiblePool;
 
-	const size_t proportionalNewlibFloor = heapTotal / 3;
+	const size_t proportionalNewlibFloor = heapTotal / kNewlibHeapDivisor;
 	const size_t newlibFloor = std::max(kMinimumNewlibHeap, proportionalNewlibFloor);
 	const size_t maximumPool = heapTotal > newlibFloor ? heapTotal - newlibFloor : 0;
 	desiredPool = std::min(desiredPool, maximumPool);

@@ -21,6 +21,7 @@
 #include <unordered_set>
 #include "platform/switch/SwitchJit.h"
 #include "platform/switch/SwitchMemoryBudget.h"
+#include "platform/switch/SwitchThread.h"
 #endif
 
 #include "IML/IML.h"
@@ -524,7 +525,8 @@ void PPCRecompiler_recompileAtAddress(uint32 address)
 void PPCRecompiler_thread()
 {
 	SetThreadName("PPCRecompiler");
-#if defined(__SWITCH__)
+#if defined(__SWITCH2__)
+	SwitchThread_UseHelperCores("recompiler");
 #endif
 #if PPCREC_FORCE_SYNCHRONOUS_COMPILATION
 	return;

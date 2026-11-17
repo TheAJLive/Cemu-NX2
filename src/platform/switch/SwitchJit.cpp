@@ -1,4 +1,7 @@
 #include <switch.h>
+#if defined(__SWITCH2__)
+#include <kaihen.h>
+#endif
 #include <array>
 #include <map>
 #include <mutex>
@@ -25,7 +28,13 @@ namespace
 		size_t size;
 	};
 
+#if defined(__SWITCH2__)
+	// Arenas are only created when the previous ones are full, so big games
+	// can grow to 256MB of code without reserving it up front.
+	constexpr size_t kMaxArenaCount = 4;
+#else
 	constexpr size_t kMaxArenaCount = 2;
+#endif
 	std::array<JitArena, kMaxArenaCount> s_arenas{};
 	size_t s_arenaCount = 0;
 	size_t s_arenaSize = 0;
@@ -56,12 +65,16 @@ namespace
 			arena = {};
 			return false;
 		}
+#if !defined(__SWITCH2__)
+		// kaiHEN's backend reports SetProcessMemoryPermission but still keeps
+		// separate RW staging and RX views, so only Switch 1 needs CodeMemory.
 		if (arena.jit.type != JitType_CodeMemory)
 		{
 			jitClose(&arena.jit);
 			arena = {};
 			return false;
 		}
+#endif
 		rc = jitTransitionToExecutable(&arena.jit);
 		if (R_FAILED(rc))
 		{
@@ -72,7 +85,7 @@ namespace
 
 		arena.rwBase = static_cast<uint8_t*>(jitGetRwAddr(&arena.jit));
 		arena.rxBase = static_cast<uint8_t*>(jitGetRxAddr(&arena.jit));
-		if (!arena.rwBase || !arena.rxBase)
+		if (!arena.rwBase || !arena.rxBase || arena.rwBase == arena.rxBase)
 		{
 			jitClose(&arena.jit);
 			arena = {};
@@ -121,7 +134,13 @@ namespace
 
 bool SwitchJit_SyscallsAvailable()
 {
+#if defined(__SWITCH2__)
+	// kaiHEN's RO maps the code for us through the ldr:ro session that
+	// hbloader passes to the NRO; without it there is no JIT.
+	return smGetServiceOverride(smEncodeName("ldr:ro")) != INVALID_HANDLE;
+#else
 	return envIsSyscallHinted(0x4B) && envIsSyscallHinted(0x4C);
+#endif
 }
 
 bool SwitchJit_InitCodeArena(size_t size)
@@ -239,10 +258,31 @@ void SwitchJit_FlushCode(void* rwAddr, size_t size)
 {
 	if (!rwAddr || size == 0)
 		return;
+#if defined(__SWITCH2__)
+	// The RW view is a staging copy: RO copies the range into the RX mapping,
+	// cleans its alias and invalidates this thread's instruction cache.
+	std::lock_guard<std::mutex> lock(s_mutex);
+	const uintptr_t address = reinterpret_cast<uintptr_t>(rwAddr);
+	for (size_t i = 0; i < s_arenaCount; ++i)
+	{
+		JitArena& arena = s_arenas[i];
+		if (!ContainsAddress(address, arena.rwBase, arena.size))
+			continue;
+		const size_t offset = address - reinterpret_cast<uintptr_t>(arena.rwBase);
+		if (size > arena.size - offset)
+			size = arena.size - offset;
+		const KaihenJitRange range{offset, size};
+		const Result rc = kaihenJitPublishRanges(&arena.jit, &range, 1);
+		if (R_FAILED(rc))
+			cemuLog_log(LogType::Force, "Switch: publishing {} bytes of JIT code failed (rc=0x{:08x})", size, rc);
+		return;
+	}
+#else
 	armDCacheClean(rwAddr, size);
 	void* rxAddr = SwitchJit_RwToRx(rwAddr);
 	if (rxAddr)
 		armICacheInvalidate(rxAddr, size);
+#endif
 }
 
 void* SwitchJit_RwToRx(void* rw)

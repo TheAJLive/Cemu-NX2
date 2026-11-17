@@ -17,6 +17,16 @@ namespace
 	{
 		if (size == 0)
 			return;
+#if defined(__SWITCH2__)
+		// kaiHEN's game policy has none of the cache syscalls, but EL0 may use
+		// DC CVAC and DC CIVAC. There is no EL0 invalidate-only operation, so
+		// GPU writes are made visible with a clean and invalidate.
+		if (operation == CacheOperation::Clean)
+			armDCacheClean(const_cast<void*>(address), size);
+		else
+			armDCacheFlush(const_cast<void*>(address), size);
+		return;
+#endif
 		const Handle process = envGetOwnProcessHandle();
 		const bool canStore = process != INVALID_HANDLE && envIsSyscallHinted(0x5E);
 		const bool canInvalidate = process != INVALID_HANDLE && envIsSyscallHinted(0x5D);
@@ -57,7 +67,11 @@ namespace
 
 bool SwitchMemory_CanSynchronizeForGpu()
 {
+#if defined(__SWITCH2__)
+	return true;
+#else
 	return envGetOwnProcessHandle() != INVALID_HANDLE && envIsSyscallHinted(0x5D) && envIsSyscallHinted(0x2B);
+#endif
 }
 
 void SwitchMemory_CleanForGpu(const void* address, size_t size)
