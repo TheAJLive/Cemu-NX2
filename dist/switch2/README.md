@@ -3,7 +3,7 @@
 The Switch 2 build runs as homebrew under [kaiHEN](https://github.com/ouncebrew/kaihen)
 and is built with [ounce-devkit](https://github.com/ouncebrew/ounce-devkit):
 libounce in place of libnx, OunceVK in place of the Mesa SDK, and libkaihen
-for the JIT. The Switch 1 build is unchanged and still uses `build_switch_all.sh`.
+for the JIT.
 
 ## Requirements
 
@@ -76,7 +76,6 @@ run `dist/switch2/build.sh`.
 ## Launcher updates
 
 The launcher checks the latest release of `TheAJLive/Cemu-NX2` on GitHub.
-The Switch 2 launcher only takes a release asset named `cemu-switch2.nro`
-(any `.nro` with `switch2` in its name), and a Switch 1 launcher skips those, so
-both builds can be attached to the same release. Tag releases with the same
+It only takes a release asset named `cemu-switch2.nro` (any `.nro` with
+`switch2` in its name). Tag releases with the same
 version passed as `RELEASE_VERSION`; the updater only offers a newer tag.

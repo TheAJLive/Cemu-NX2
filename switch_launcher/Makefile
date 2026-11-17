@@ -13,9 +13,11 @@ APP_VERSION	?=	$(RELEASE_VERSION)
 
 TOPDIR ?= $(CURDIR)
 
-# make SWITCH2=1 builds for Switch 2 with ounce-devkit (libounce and OunceVK).
-SWITCH2 ?= 0
-ifeq ($(SWITCH2),1)
+# Builds for Switch 2 with ounce-devkit (libounce and OunceVK). Switch 1 is not supported.
+SWITCH2 ?= 1
+ifneq ($(SWITCH2),1)
+$(error "This repository only builds for Switch 2 (SWITCH2=1)")
+endif
 include $(DEVKITPRO)/libounce/switch2_rules
 APP_AUTHOR	:=	naga - NX2 Port by TheAJLive
 CORE_BUILD	:=	build_switch2
@@ -23,14 +25,6 @@ TARGET		:=	switch2/cemu
 BUILD		:=	build_switch2
 ROMFS		:=	romfs_switch2	# Switch 2 emulator payload
 ARCH	:=	$(SWITCH2_CPU) -mtp=soft -fPIE
-else
-include $(DEVKITPRO)/libnx/switch_rules
-CORE_BUILD	:=	build_switch
-TARGET		:=	cemu
-BUILD		:=	build
-ROMFS		:=	romfs		# emulator and forwarder payloads
-ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
-endif
 
 SOURCES		:=	source ../src/platform/switch/common
 DATA		:=	data
@@ -65,19 +59,8 @@ STORAGE_LIBS := $(TOPDIR)/../$(CORE_BUILD)/_deps/libsmb2-build/lib/libsmb2.a \
 ARCHIVE_LIBS := $(TOPDIR)/../$(CORE_BUILD)/dependencies/ZArchive/libzarchive.a
 LIBS	:=	$(STORAGE_LIBS) $(ARCHIVE_LIBS) `$(PREFIX)pkg-config --libs $(PKGS)` -lturbojpeg -lzstd -lz -lGLESv2 -lnx
 
-ifeq ($(SWITCH2),1)
 # GLES and EGL come from OunceVK through the rules' overlay library path.
 LIBDIRS	:= $(PORTLIBS) $(LIBNX)
-else
-STAGED_MESA20 := $(TOPDIR)/../build_switch/launcher_mesa20/opt/devkitpro/portlibs/switch
-ifneq ($(wildcard $(STAGED_MESA20)/lib/libGLESv2.a),)
-LAUNCHER_MESA20_ROOT ?= $(STAGED_MESA20)
-else
-LAUNCHER_MESA20_ROOT ?= $(PORTLIBS)
-endif
-
-LIBDIRS	:= $(LAUNCHER_MESA20_ROOT) $(PORTLIBS) $(LIBNX)
-endif
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 

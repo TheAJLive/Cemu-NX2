@@ -34,11 +34,7 @@ namespace
 		"https://api.github.com/repos/TheAJLive/Cemu-NX2/releases/latest";
 	constexpr char kReleaseAssetPrefix[] =
 		"https://github.com/TheAJLive/Cemu-NX2/releases/download/";
-#if defined(__SWITCH2__)
 	constexpr char kPreferredAsset[] = "cemu-switch2.nro";
-#else
-	constexpr char kPreferredAsset[] = "cemu.nro";
-#endif
 	constexpr std::size_t kMaxReleaseResponse = 2 * 1024 * 1024;
 	constexpr std::uint64_t kMinimumNroSize = 1024 * 1024;
 	constexpr std::uint64_t kMaximumNroSize = 512ULL * 1024 * 1024;
@@ -298,17 +294,9 @@ namespace
 			if (lowerName.size() < 4 || lowerName.substr(lowerName.size() - 4) != ".nro" ||
 				size < kMinimumNroSize || size > kMaximumNroSize || !StartsWith(url, kReleaseAssetPrefix))
 				continue;
-			// Releases carry one NRO per console; never offer the other console's build.
-			const bool switch2Asset = lowerName.find("switch2") != std::string::npos;
-#if defined(__SWITCH2__)
-			if (!switch2Asset)
+			if (lowerName.find("switch2") == std::string::npos)
 				continue;
 			if (bestAsset < 0 || lowerName == kPreferredAsset)
-#else
-			if (switch2Asset)
-				continue;
-			if (bestAsset < 0 || lowerName == kPreferredAsset)
-#endif
 			{
 				bestAsset = static_cast<int>(index);
 				release.assetName = std::move(name);
