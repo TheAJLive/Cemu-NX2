@@ -72,10 +72,3 @@ run `dist/switch2/build.sh`.
   out on purpose.
 - On exit, threads that were never joined are paused and their stacks are
   unmapped, so hbmenu gets its memory back when Cemu returns.
-
-## Launcher updates
-
-The launcher checks the latest release of `TheAJLive/Cemu-NX2` on GitHub.
-It only takes a release asset named `cemu-switch2.nro` (any `.nro` with
-`switch2` in its name). Tag releases with the same
-version passed as `RELEASE_VERSION`; the updater only offers a newer tag.
