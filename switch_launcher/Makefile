@@ -12,21 +12,33 @@ RELEASE_VERSION	?=	1.3.2
 APP_VERSION	?=	$(RELEASE_VERSION)
 
 TOPDIR ?= $(CURDIR)
-include $(DEVKITPRO)/libnx/switch_rules
 
+# make SWITCH2=1 builds for Switch 2 with ounce-devkit (libounce and OunceVK).
+SWITCH2 ?= 0
+ifeq ($(SWITCH2),1)
+include $(DEVKITPRO)/libounce/switch2_rules
+CORE_BUILD	:=	build_switch2
+TARGET		:=	switch2/cemu
+BUILD		:=	build_switch2
+ROMFS		:=	romfs_switch2	# Switch 2 emulator payload
+ARCH	:=	$(SWITCH2_CPU) -mtp=soft -fPIE
+else
+include $(DEVKITPRO)/libnx/switch_rules
+CORE_BUILD	:=	build_switch
 TARGET		:=	cemu
 BUILD		:=	build
+ROMFS		:=	romfs		# emulator and forwarder payloads
+ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
+endif
+
 SOURCES		:=	source ../src/platform/switch/common
 DATA		:=	data
 INCLUDES	:=	../src/platform/switch/common \
 			../dependencies/ZArchive/include \
-			../build_switch/_deps/rapidjson-src/include \
-			../build_switch/_deps/libsmb2-src/include \
-			../build_switch/_deps/libusbhsfs-src/include
-ROMFS		:=	romfs		# emulator and forwarder payloads
+			../$(CORE_BUILD)/_deps/rapidjson-src/include \
+			../$(CORE_BUILD)/_deps/libsmb2-src/include \
+			../$(CORE_BUILD)/_deps/libusbhsfs-src/include
 ICON		:=	Cemu.jpg
-
-ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
 
 PKGS	:=	sdl2 SDL2_ttf SDL2_image libcurl
 
@@ -43,15 +55,19 @@ endif
 CXXFLAGS	:= $(CFLAGS) -std=gnu++17
 
 ASFLAGS	:=	$(ARCH)
-LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs $(ARCH) -Wl,-Map,$(notdir $*.map) \
+LDFLAGS	=	-specs=$(LIBNX)/switch.specs $(ARCH) -Wl,-Map,$(notdir $*.map) \
 			-Wl,--gc-sections -Wl,--build-id=none
 
-STORAGE_LIBS := $(TOPDIR)/../build_switch/_deps/libsmb2-build/lib/libsmb2.a \
-				$(TOPDIR)/../build_switch/_deps/libusbhsfs-build/liblibusbhsfs.a \
+STORAGE_LIBS := $(TOPDIR)/../$(CORE_BUILD)/_deps/libsmb2-build/lib/libsmb2.a \
+				$(TOPDIR)/../$(CORE_BUILD)/_deps/libusbhsfs-build/liblibusbhsfs.a \
 				$(PORTLIBS)/lib/libntfs-3g.a
-ARCHIVE_LIBS := $(TOPDIR)/../build_switch/dependencies/ZArchive/libzarchive.a
+ARCHIVE_LIBS := $(TOPDIR)/../$(CORE_BUILD)/dependencies/ZArchive/libzarchive.a
 LIBS	:=	$(STORAGE_LIBS) $(ARCHIVE_LIBS) `$(PREFIX)pkg-config --libs $(PKGS)` -lturbojpeg -lzstd -lz -lGLESv2 -lnx
 
+ifeq ($(SWITCH2),1)
+# GLES and EGL come from OunceVK through the rules' overlay library path.
+LIBDIRS	:= $(PORTLIBS) $(LIBNX)
+else
 STAGED_MESA20 := $(TOPDIR)/../build_switch/launcher_mesa20/opt/devkitpro/portlibs/switch
 ifneq ($(wildcard $(STAGED_MESA20)/lib/libGLESv2.a),)
 LAUNCHER_MESA20_ROOT ?= $(STAGED_MESA20)
@@ -60,6 +76,7 @@ LAUNCHER_MESA20_ROOT ?= $(PORTLIBS)
 endif
 
 LIBDIRS	:= $(LAUNCHER_MESA20_ROOT) $(PORTLIBS) $(LIBNX)
+endif
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 
@@ -128,6 +145,7 @@ $(TOPDIR)/romfs/forwarder-icon.jpg: $(APP_ICON)
 
 $(BUILD): $(TOPDIR)/romfs/forwarder-icon.jpg
 	@[ -d $@ ] || mkdir -p $@
+	@mkdir -p $(dir $(OUTPUT))
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 clean:

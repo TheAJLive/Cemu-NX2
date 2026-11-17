@@ -38,6 +38,10 @@ bin/Cemu_*.exe
 /switch_launcher/fwd/hbl.elf
 /switch_launcher/romfs/emu/
 /switch_launcher/romfs/fwd/
+/bin/switch2/
+/switch_launcher/build_switch2/
+/switch_launcher/switch2/
+/switch_launcher/romfs_switch2/
 /dependencies/switch_deps/
 /dependencies/switch_mesa_vulkan/
 /dependencies/switch_mesa_sdk_*/

@@ -2,7 +2,14 @@
 include(FetchContent)
 
 set(SWITCH_PORTLIBS "${DEVKITPRO}/portlibs/switch")
-set(SWITCH_LIBNX    "${DEVKITPRO}/libnx")
+if(PLATFORM_SWITCH2)
+	set(SWITCH2_PORTLIBS "${DEVKITPRO}/portlibs/switch2")
+	set(SWITCH_LIBNX    "${DEVKITPRO}/libounce")
+	# OunceVK's EGL, GL and Vulkan headers must come before switch-mesa's.
+	include_directories(SYSTEM "${SWITCH2_PORTLIBS}/include")
+else()
+	set(SWITCH_LIBNX    "${DEVKITPRO}/libnx")
+endif()
 include_directories(SYSTEM "${SWITCH_PORTLIBS}/include")
 
 # Threads
@@ -166,7 +173,33 @@ set(glslang_VERSION "15.1.0")
 
 # The top-level build adds ZArchive after package discovery fails.
 
-if(ENABLE_VULKAN)
+if(ENABLE_VULKAN AND PLATFORM_SWITCH2)
+# OunceVK provides Vulkan, EGL and OpenGL (Zink) in one archive. Its public vk*
+# and gl* entry points collide with Cemu's dispatch pointers, so they are made
+# local once per build directory; the ICD entry points stay global.
+set(SWITCH_OUNCEVK_SOURCE "${SWITCH2_PORTLIBS}/lib/libouncevk-gl.a")
+set(SWITCH_OUNCEVK_ARCHIVE "${CMAKE_BINARY_DIR}/ouncevk/libouncevk_local.a")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SWITCH_OUNCEVK_SOURCE}")
+if(NOT EXISTS "${SWITCH_OUNCEVK_SOURCE}")
+	message(FATAL_ERROR "OunceVK is missing: ${SWITCH_OUNCEVK_SOURCE}. Install ounce-devkit.")
+endif()
+if(NOT EXISTS "${SWITCH_OUNCEVK_ARCHIVE}" OR
+	"${SWITCH_OUNCEVK_SOURCE}" IS_NEWER_THAN "${SWITCH_OUNCEVK_ARCHIVE}")
+	execute_process(
+		COMMAND bash "${CMAKE_SOURCE_DIR}/dist/switch2/localize_ouncevk.sh" "${CMAKE_BINARY_DIR}/ouncevk"
+		COMMAND_ERROR_IS_FATAL ANY)
+endif()
+set(SWITCH_MESA_SDK_ROOT "${SWITCH2_PORTLIBS}" CACHE PATH "OunceVK prefix" FORCE)
+set(OPENGL_SWITCH_VULKAN_LIBRARY "${SWITCH_OUNCEVK_ARCHIVE}")
+
+add_library(SwitchVulkanDriver INTERFACE)
+target_include_directories(SwitchVulkanDriver INTERFACE
+	"${CMAKE_SOURCE_DIR}/dependencies/Vulkan-Headers/include")
+target_link_libraries(SwitchVulkanDriver INTERFACE "${SWITCH_OUNCEVK_ARCHIVE}" stdc++ m)
+
+add_compile_definitions(VK_USE_PLATFORM_VI_NN)
+
+elseif(ENABLE_VULKAN)
 # Mesa NVK Vulkan driver.  Accept both the historical NVK-only package and the
 # unified Horizon Mesa SDK.  The latter is intentionally selected explicitly so
 # a developer's system portlibs can never silently change a release build.

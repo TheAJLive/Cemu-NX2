@@ -112,6 +112,13 @@ if(PLATFORM_SWITCH)
 		platform/switch/switch_stubs.cpp
 	)
 	cemu_switch_configure_pgo(CemuBin)
+	if(PLATFORM_SWITCH2)
+		target_sources(CemuBin PRIVATE platform/switch/SwitchExitCleanup.cpp)
+		# kaiHEN's JIT provider: libounce's jit* functions only weakly reference it.
+		target_link_libraries(CemuBin PRIVATE kaihen)
+		# Track pthreads so their stacks can be released before hbloader reuses the heap.
+		target_link_options(CemuBin PRIVATE "-Wl,--wrap=__syscall_thread_create")
+	endif()
 else()
 	add_executable(CemuBin
 		main.cpp

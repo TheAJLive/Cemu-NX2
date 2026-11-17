@@ -222,7 +222,14 @@ if (ENABLE_DEKO3D)
 endif()
 
 if (ENABLE_OPENGL)
-	if(PLATFORM_SWITCH)
+	if(PLATFORM_SWITCH2)
+		# OunceVK's GL runs on Zink and shares the localized Vulkan archive.
+		add_library(SwitchOunceGL INTERFACE)
+		target_include_directories(SwitchOunceGL INTERFACE "${SWITCH_MESA_SDK_ROOT}/include")
+		target_link_libraries(SwitchOunceGL INTERFACE SwitchVulkanDriver)
+		add_library(OpenGL::GL ALIAS SwitchOunceGL)
+		add_library(OpenGL::EGL ALIAS SwitchOunceGL)
+	elseif(PLATFORM_SWITCH)
 		if(NOT IS_DIRECTORY "${SWITCH_MESA_SDK_ROOT}/lib/cmake/OpenGL")
 			message(FATAL_ERROR
 				"The Switch OpenGL backend requires the complete unified Mesa SDK at "
