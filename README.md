@@ -30,6 +30,18 @@ The native macOS build is currently purely experimental and should not be consid
 
 Pre-2.0 releases can be found on Cemu's [changelog page](https://cemu.info/changelog.html).
 
+## Nintendo Switch and Switch 2
+
+This fork adds homebrew builds for the Nintendo Switch and the Switch 2.
+
+- **Switch:** see [dist/switch/README.md](/dist/switch/README.md).
+- **Switch 2:** runs under kaiHEN and is built with ounce-devkit. See
+  [dist/switch2/README.md](/dist/switch2/README.md).
+
+Both builds use the same SD card layout under `sdmc:/switch/cemu/`, which holds
+keys, games, saves and settings, so a Switch setup carries over to the Switch 2
+unchanged.
+
 ## Build Instructions
 
 To compile Cemu yourself on Windows, Linux or macOS, view [BUILD.md](/BUILD.md).
