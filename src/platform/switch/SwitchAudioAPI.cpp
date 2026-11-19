@@ -24,6 +24,7 @@ extern "C" {
 
 #include "audio/SwitchAudioAPI.h"
 #include "util/helpers/helpers.h"
+#include "platform/switch/SwitchGameShare.h"
 
 namespace
 {
@@ -606,11 +607,25 @@ SwitchAudioAPI::~SwitchAudioAPI()
 
 bool SwitchAudioAPI::NeedAdditionalBlocks() const
 {
+	// GamePad audio that goes to the guest follows the TV audio clock, it never asks for more.
+	if (m_impl->endpoint.type == AudioType::Gamepad && SwitchGameShare_SeparateActive())
+		return false;
 	return s_mixer && s_mixer->NeedsBlocks(m_impl->endpoint, GetAudioDelay());
 }
 
 bool SwitchAudioAPI::FeedBlock(sint16* data)
 {
+	const auto& endpoint = m_impl->endpoint;
+	if (endpoint.type == AudioType::Gamepad && endpoint.samplerate == kOutputRate && endpoint.channels == kOutputChannels &&
+	    SwitchGameShare_SeparateActive())
+	{
+		thread_local std::vector<sint16> scaled;
+		scaled.resize(endpoint.samplesPerBlock * kOutputChannels);
+		for (size_t i = 0; i < scaled.size(); ++i)
+			scaled[i] = static_cast<sint16>((static_cast<sint32>(data[i]) * endpoint.volume) / 100);
+		if (SwitchGameShare_WriteGuestAudio(scaled.data(), endpoint.samplesPerBlock))
+			return true;
+	}
 	return s_mixer && s_mixer->Feed(m_impl->endpoint, data);
 }
 

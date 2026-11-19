@@ -19,6 +19,7 @@
 #include "Cafe/OS/libs/swkbd/swkbd.h"
 #if defined(__SWITCH__)
 #include "platform/switch/SwitchPlatform.h"
+#include "platform/switch/SwitchGameShare.h"
 #include "platform/switch/SwitchSaltyNX.h"
 #endif
 
@@ -1105,6 +1106,13 @@ void LatteRenderTarget_itHLECopyColorBufferToScanBuffer(MPTR colorBufferPtr, uin
 		s_scanSource[i] = { true, colorBufferPtr, colorBufferWidth, colorBufferHeight, colorBufferSliceIndex,
 			colorBufferFormat, colorBufferPitch, colorBufferSwizzle, colorBufferTilemode };
 		s_scanCopiedSinceSwap[i] = true;
+	}
+	if (SwitchGameShare_SeparateActive())
+	{
+		if ((renderTarget & RENDER_TARGET_DRC) && SwitchGameShare_WantsGuestFrame(true))
+			g_renderer->CaptureForGameShare(texView, true);
+		if ((renderTarget & RENDER_TARGET_TV) && SwitchGameShare_WantsGuestFrame(false))
+			g_renderer->CaptureForGameShare(texView, false);
 	}
 	if (SwitchPlatform_IsGamePadOnly())
 	{

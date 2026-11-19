@@ -13,6 +13,7 @@
 
 #if defined(__SWITCH__)
 #include <switch.h>
+#include "platform/switch/SwitchGameShare.h"
 #endif
 
 namespace nn
@@ -489,7 +490,12 @@ namespace erreula
 					s_dialogPadReady = true;
 				}
 				padUpdate(&s_dialogPad);
-				const u64 pressed = padGetButtonsDown(&s_dialogPad);
+				u64 pressed = padGetButtonsDown(&s_dialogPad);
+				static u64 s_guestPrevious = 0;
+				SwitchGameShareInput guest;
+				const u64 guestButtons = SwitchGameShare_GetGuestInput(guest) ? guest.buttons : 0;
+				pressed |= guestButtons & ~s_guestPrevious;
+				s_guestPrevious = guestButtons;
 				if (pressed & HidNpadButton_A)
 					hasLeftButtonPressed = true;
 				if (pressed & HidNpadButton_B)

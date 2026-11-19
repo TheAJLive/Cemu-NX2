@@ -33,10 +33,21 @@ enum class SwitchGameShareResult
 	Failed,
 };
 
-void SwitchGameShare_Configure(bool lobbyRequested, bool swapRoles);
+void SwitchGameShare_Configure(bool lobbyRequested, bool swapRoles, bool separateScreens);
 bool SwitchGameShare_LobbyRequested();
 // Off: the guest is the GamePad (host sends the GamePad view). On: host sends the TV view.
 bool SwitchGameShare_SwapRoles();
+// Separate screens: the guest gets its own picture (GamePad, or TV when swapped) and its own audio,
+// the host keeps the other one. Chosen before the session starts.
+bool SwitchGameShare_SeparateScreens();
+// True while a separate-screens session is running.
+bool SwitchGameShare_SeparateActive();
+// True when the renderer should capture this view (padView = GamePad) for the guest.
+bool SwitchGameShare_WantsGuestFrame(bool padView);
+// One 1280x720 RGBA frame for the guest.
+void SwitchGameShare_SubmitGuestFrame(const uint32_t* rgba);
+// GamePad audio (48 kHz stereo s16) for the guest. Returns false if it isn't routed there.
+bool SwitchGameShare_WriteGuestAudio(const int16_t* frames, uint32_t frameCount);
 
 // Opens the session, shows the system matchmaking applet, and starts streaming once a guest joined.
 SwitchGameShareResult SwitchGameShare_Begin(std::string& error);

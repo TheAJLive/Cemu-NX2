@@ -40,6 +40,7 @@
 #if defined(__SWITCH__)
 #include "platform/switch/SwitchLSFG.h"
 #include "platform/switch/SwitchPlatform.h"
+#include "platform/switch/SwitchGameShare.h"
 #include "platform/switch/SwitchSwkbd.h"
 extern "C" {
 #include <switch/services/applet.h>
@@ -1365,6 +1366,170 @@ void VulkanRenderer::HandleScreenshotRequest(LatteTextureView* texView, bool pad
 
 	if (formatValid)
 		SaveScreenshot(rgb_data, width, height, !padView);
+}
+
+namespace
+{
+constexpr uint32 kGameShareWidth = 1280;
+constexpr uint32 kGameShareHeight = 720;
+constexpr uint64 kGameShareIntervalMs = 33;
+} // namespace
+
+bool VulkanRenderer::CreateGameShareResources(VkFormat blitFormat)
+{
+	if (m_gameShareImage && m_gameShareImageFormat == blitFormat)
+		return true;
+	// The format only changes if the game switches sRGB handling; finish what is queued first.
+	if (m_gameShareImage)
+	{
+		WaitCommandBufferFinished(GetCurrentCommandBufferId());
+		vkDestroyImage(m_logicalDevice, m_gameShareImage, nullptr);
+		vkFreeMemory(m_logicalDevice, m_gameShareImageMemory, nullptr);
+		m_gameShareImage = VK_NULL_HANDLE;
+		m_gameShareImageMemory = VK_NULL_HANDLE;
+	}
+	VkImageCreateInfo imageInfo{};
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.format = blitFormat;
+	imageInfo.extent = {kGameShareWidth, kGameShareHeight, 1};
+	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.arrayLayers = 1;
+	imageInfo.mipLevels = 1;
+	imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	if (vkCreateImage(m_logicalDevice, &imageInfo, nullptr, &m_gameShareImage) != VK_SUCCESS)
+		return false;
+	VkMemoryRequirements requirements;
+	vkGetImageMemoryRequirements(m_logicalDevice, m_gameShareImage, &requirements);
+	uint32 memoryIndex;
+	if (!memoryManager->FindMemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memoryIndex))
+		return false;
+	VkMemoryAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocInfo.allocationSize = requirements.size;
+	allocInfo.memoryTypeIndex = memoryIndex;
+	if (vkAllocateMemory(m_logicalDevice, &allocInfo, nullptr, &m_gameShareImageMemory) != VK_SUCCESS)
+		return false;
+	vkBindImageMemory(m_logicalDevice, m_gameShareImage, m_gameShareImageMemory, 0);
+	m_gameShareImageFormat = blitFormat;
+	for (auto& slot : m_gameShareSlots)
+	{
+		if (slot.buffer)
+			continue;
+		if (!memoryManager->CreateBuffer(kGameShareWidth * kGameShareHeight * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+		                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+		                                 VK_MEMORY_PROPERTY_HOST_CACHED_BIT, slot.buffer, slot.memory))
+			return false;
+		if (vkMapMemory(m_logicalDevice, slot.memory, 0, VK_WHOLE_SIZE, 0, &slot.mapped) != VK_SUCCESS)
+			return false;
+	}
+	return true;
+}
+
+void VulkanRenderer::DrainGameShareCaptures()
+{
+	// Oldest first, so frames reach the guest in order.
+	while (m_gameShareCount > 0)
+	{
+		const size_t tail = (m_gameShareHead + m_gameShareSlots.size() - m_gameShareCount) % m_gameShareSlots.size();
+		auto& slot = m_gameShareSlots[tail];
+		if (!HasCommandBufferFinished(slot.commandBufferId))
+			break;
+#if defined(__SWITCH__)
+		SwitchGameShare_SubmitGuestFrame(static_cast<const uint32*>(slot.mapped));
+#endif
+		--m_gameShareCount;
+	}
+}
+
+void VulkanRenderer::CaptureForGameShare(LatteTextureView* texView, bool padView)
+{
+	if (m_gameShareDisabled)
+		return;
+	DrainGameShareCaptures();
+	if (m_gameShareCount == m_gameShareSlots.size())
+		return;
+	const uint64 now = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now().time_since_epoch()).count();
+	if (now - m_gameShareLastCapture < kGameShareIntervalMs)
+		return;
+
+	auto texViewVk = (LatteTextureViewVk*)texView;
+	if (texViewVk->firstMip != 0)
+		return;
+	auto baseImageTex = texViewVk->GetBaseImage();
+	int width, height;
+	baseImageTex->GetEffectiveSize(width, height, 0);
+	if (width <= 0 || height <= 0)
+		return;
+
+	VkFormatProperties sourceProps;
+	vkGetPhysicalDeviceFormatProperties(m_physicalDevice, baseImageTex->GetFormat(), &sourceProps);
+	const bool dstUsesSRGB = (!padView && LatteGPUState.tvBufferUsesSRGB) || (padView && LatteGPUState.drcBufferUsesSRGB);
+	const VkFormat blitFormat = dstUsesSRGB ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
+	VkFormatProperties targetProps;
+	vkGetPhysicalDeviceFormatProperties(m_physicalDevice, blitFormat, &targetProps);
+	if (!(sourceProps.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) ||
+	    !(targetProps.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT))
+	{
+		cemuLog_log(LogType::Force, "GameShare: the framebuffer can't be blitted, separate screens are off");
+		m_gameShareDisabled = true;
+		return;
+	}
+	if (!CreateGameShareResources(blitFormat))
+	{
+		cemuLog_log(LogType::Force, "GameShare: could not create the capture resources, separate screens are off");
+		m_gameShareDisabled = true;
+		return;
+	}
+	const bool linear = (sourceProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+
+	draw_endRenderPass();
+	auto textureVk = baseImageTex->GetImageObj();
+	textureVk->flagForCurrentCommandBuffer();
+
+	{
+		VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+		barrier_image<TRANSFER_READ, TRANSFER_WRITE>(m_gameShareImage, range, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	}
+	{
+		VkImageSubresourceLayers range{VK_IMAGE_ASPECT_COLOR_BIT, 0, (uint32)texViewVk->firstSlice, 1};
+		barrier_image<IMAGE_WRITE | TRANSFER_WRITE, SYNC_OP::TRANSFER_READ>(baseImageTex, range, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+	}
+
+	VkImageBlit blit{};
+	blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, (uint32)texViewVk->firstSlice, 1};
+	blit.srcOffsets[1] = {width, height, 1};
+	blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+	blit.dstOffsets[1] = {(sint32)kGameShareWidth, (sint32)kGameShareHeight, 1};
+	vkCmdBlitImage(m_state.currentCommandBuffer, textureVk->m_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+	               m_gameShareImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+	               linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
+
+	{
+		VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+		barrier_image<TRANSFER_WRITE, TRANSFER_READ>(m_gameShareImage, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+	}
+	{
+		VkImageSubresourceLayers range{baseImageTex->GetImageAspect(), 0, (uint32)texViewVk->firstSlice, 1};
+		barrier_image<TRANSFER_READ, TRANSFER_WRITE | IMAGE_WRITE>(baseImageTex, range, baseImageTex->GetDefaultLayout());
+	}
+
+	auto& slot = m_gameShareSlots[m_gameShareHead];
+	VkBufferImageCopy region{};
+	region.bufferRowLength = kGameShareWidth;
+	region.bufferImageHeight = kGameShareHeight;
+	region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+	region.imageExtent = {kGameShareWidth, kGameShareHeight, 1};
+	vkCmdCopyImageToBuffer(m_state.currentCommandBuffer, m_gameShareImage, VK_IMAGE_LAYOUT_GENERAL, slot.buffer, 1, &region);
+
+	slot.commandBufferId = GetCurrentCommandBufferId();
+	m_gameShareHead = (m_gameShareHead + 1) % m_gameShareSlots.size();
+	++m_gameShareCount;
+	m_gameShareLastCapture = now;
 }
 
 static const float kQueuePriority = 1.0f;
