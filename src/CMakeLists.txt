@@ -113,6 +113,9 @@ if(PLATFORM_SWITCH)
 	)
 	cemu_switch_configure_pgo(CemuBin)
 	if(PLATFORM_SWITCH2)
+		# Local GameShare host. Needs a libounce with GameShare (ouncebrew/libounce PR #4).
+		target_sources(CemuBin PRIVATE platform/switch/SwitchGameShare.cpp)
+		target_compile_definitions(CemuBin PRIVATE CEMU_SWITCH_GAMESHARE=1)
 		target_sources(CemuBin PRIVATE platform/switch/SwitchExitCleanup.cpp)
 		# kaiHEN's JIT provider: libounce's jit* functions only weakly reference it.
 		target_link_libraries(CemuBin PRIVATE kaihen)

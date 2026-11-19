@@ -15,6 +15,7 @@
 #include "Cafe/TitleList/SaveList.h"
 #include "Cafe/GraphicPack/GraphicPack2.h"
 #include "Cafe/HW/Latte/Core/LatteOverlay.h"
+#include "Cafe/HW/Latte/Core/Latte.h"
 
 #include "input/InputManager.h"
 #include "audio/IAudioAPI.h"
@@ -23,6 +24,7 @@
 #include "platform/switch/SwitchAmiibo.h"
 #include "platform/switch/SwitchSwkbd.h"
 #include "platform/switch/SwitchInput.h"
+#include "platform/switch/SwitchGameShare.h"
 #include "platform/switch/SwitchJit.h"
 #include "platform/switch/SwitchLSFG.h"
 #include "platform/switch/SwitchMemory.h"
@@ -110,7 +112,7 @@ bool SwitchPlatform_UseTripleBuffer()
 	return s_switchTripleBuffer;
 }
 
-void SwitchPlatform_SetGamePadLayout(SwitchGamePadLayout layout)
+static void ApplyGamePadLayout(SwitchGamePadLayout layout)
 {
 	if (IsCompositeLayout(layout))
 		s_lastCompositeLayout.store(layout, std::memory_order_release);
@@ -120,6 +122,19 @@ void SwitchPlatform_SetGamePadLayout(SwitchGamePadLayout layout)
 	WindowSystem::GetWindowInfo().pad_open.store(layout != SwitchGamePadLayout::Disabled, std::memory_order_release);
 }
 
+void SwitchPlatform_SetGamePadLayout(SwitchGamePadLayout layout)
+{
+	// While a GameShare session is active the roles decide what is displayed and streamed.
+	if (SwitchGameShare_Active())
+		return;
+	ApplyGamePadLayout(layout);
+}
+
+void SwitchPlatform_ForceGamePadLayout(SwitchGamePadLayout layout)
+{
+	ApplyGamePadLayout(layout);
+}
+
 SwitchGamePadLayout SwitchPlatform_GetGamePadLayout()
 {
 	return s_gamePadLayout.load(std::memory_order_acquire);
@@ -127,6 +142,8 @@ SwitchGamePadLayout SwitchPlatform_GetGamePadLayout()
 
 void SwitchPlatform_CycleGamePadMode()
 {
+	if (SwitchGameShare_Active())
+		return;
 	const SwitchGamePadLayout current = SwitchPlatform_GetGamePadLayout();
 	if (current == SwitchGamePadLayout::Disabled)
 		SwitchPlatform_SetGamePadLayout(SwitchGamePadLayout::PadOnly);
@@ -507,6 +524,9 @@ namespace WindowSystem
 			gamePadLayout == "below" ? SwitchGamePadLayout::Below :
 			gamePadLayout == "above" ? SwitchGamePadLayout::Above : SwitchGamePadLayout::Disabled);
 
+		SwitchGameShare_Configure(Handoff("gameshare_lobby", "0") == "1",
+		                          Handoff("gameshare_swap", "false") == "true");
+
 		auto applyUsbSetting = [](const char* key, auto& value) {
 			const std::string setting = Handoff(key);
 			if (!setting.empty())
@@ -553,6 +573,7 @@ namespace WindowSystem
 	{
 		SwitchPlatform_EndGameBootBoost();
 		SwitchAmiibo_Shutdown();
+		SwitchGameShare_End();
 		if (s_cafeInitialized)
 		{
 			CafeSystem::Shutdown();
@@ -760,10 +781,71 @@ namespace WindowSystem
 		return false;
 	}
 
+	// Runs the GameShare session and lobby, then boots the title the lobby picked.
+	// Returns true when a title was launched, false when the session ended without one.
+	static bool BootGameShareLobby()
+	{
+		std::string error;
+		const SwitchGameShareResult result = SwitchGameShare_Begin(error);
+		if (result == SwitchGameShareResult::Cancelled)
+			return false;
+		if (result == SwitchGameShareResult::Failed)
+			throw std::runtime_error("GameShare: " + error);
+
+		// The lobby is drawn on the TV surface. Roles are applied once a game starts.
+		SwitchPlatform_ForceGamePadLayout(SwitchGamePadLayout::Disabled);
+		CafeSystem::PrepareLobbyMemorySpace();
+		if (!SwitchCreateRenderer(s_surfaceWidth.load(std::memory_order_acquire),
+		                          s_surfaceHeight.load(std::memory_order_acquire), "vk"))
+			throw std::runtime_error("failed to initialize the Vulkan renderer for the GameShare lobby");
+		SwitchGameShare_LobbySetActive(true);
+		SwitchGameShare_LobbyBegin();
+		Latte_Start();
+
+		SwitchGameShareLobbyChoice choice;
+		for (;;)
+		{
+			if (!appletMainLoop())
+			{
+				s_returnToLauncher.store(false, std::memory_order_release);
+				choice.quit = true;
+				break;
+			}
+			if (SwitchGameShare_LobbyUpdate(choice))
+				break;
+			svcSleepThread(16'000'000ULL);
+		}
+
+		if (choice.quit || !choice.launch)
+		{
+			SwitchGameShare_LobbySetActive(false);
+			Latte_Stop();
+			return false;
+		}
+
+		TitleId baseTitleId = 0;
+		bool launched = false;
+		if (ResolveTitleId(choice.titleId, baseTitleId) &&
+			CafeSystem::PrepareForegroundTitle(baseTitleId) == CafeSystem::PREPARE_STATUS_CODE::SUCCESS)
+		{
+			// Swap Off: the guest is the GamePad, so the host sends the GamePad view. Swap On: TV view.
+			SwitchPlatform_ForceGamePadLayout(SwitchGameShare_SwapRoles() ? SwitchGamePadLayout::Disabled
+			                                                                : SwitchGamePadLayout::PadOnly);
+			CafeSystem::LaunchForegroundTitle();
+			launched = true;
+		}
+		// Releases the render thread's lobby wait, in the same order as a normal launch.
+		SwitchGameShare_LobbySetActive(false);
+		if (!launched)
+			Latte_Stop();
+		return launched;
+	}
+
 	static void RunLoop()
 	{
 		PadState pad;
 		padInitializeDefault(&pad);
+		u64 previousHeld = 0;
 		appletSetMediaPlaybackState(true);
 		for (;;)
 		{
@@ -782,8 +864,13 @@ namespace WindowSystem
 				continue;
 			}
 			padUpdate(&pad);
-			const u64 down = padGetButtonsDown(&pad);
-			const u64 held = padGetButtons(&pad);
+			u64 held = padGetButtons(&pad);
+			// The guest console can open the quick menu and trigger an Amiibo scan too
+			// (the scan itself still reads the host's Joy-Con NFC).
+			if (SwitchGameShareInput guest; SwitchGameShare_GetGuestInput(guest))
+				held |= guest.buttons;
+			const u64 down = held & ~previousHeld;
+			previousHeld = held;
 			SwitchOverlay_UpdateInput(down, held);
 			if (SwitchOverlay_TakeAmiiboScanRequest())
 				SwitchAmiibo_StartScan();
@@ -806,7 +893,16 @@ namespace WindowSystem
 			SetupWindowInfo();
 			SwitchPlatform_BeginGameBootBoost();
 			CommonInit();
-			if (!BootTitle())
+			if (SwitchGameShare_LobbyRequested())
+			{
+				if (!BootGameShareLobby())
+				{
+					CommonShutdown();
+					ShutdownLifecycle();
+					return;
+				}
+			}
+			else if (!BootTitle())
 				throw std::runtime_error("no launchable title was found");
 			RunLoop();
 		}

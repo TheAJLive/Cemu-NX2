@@ -1,6 +1,7 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
 #if defined(__SWITCH__)
 #include "platform/switch/SwitchThread.h"
+#include "platform/switch/SwitchGameShare.h"
 #include "platform/switch/SwitchMemory.h"
 #include "platform/switch/SwitchMemoryBudget.h"
 #include "platform/switch/common/SwitchLaunchPolicy.h"
@@ -2243,6 +2244,13 @@ void VulkanRenderer::DrawEmptyFrame(bool mainWindow)
 {
 	if (!BeginFrame(mainWindow))
 		return;
+#if defined(__SWITCH2__)
+	if (mainWindow && SwitchGameShare_LobbyActive() && ImguiBegin(true))
+	{
+		SwitchGameShare_LobbyRender();
+		ImguiEnd();
+	}
+#endif
 	SwapBuffers(mainWindow, !mainWindow);
 }
 

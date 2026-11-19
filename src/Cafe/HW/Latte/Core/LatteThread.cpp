@@ -23,6 +23,7 @@
 #include "platform/switch/SwitchPlatform.h"
 #include "platform/switch/common/SwitchLaunchPolicy.h"
 #include "platform/switch/SwitchThread.h"
+#include "platform/switch/SwitchGameShare.h"
 #include <exception>
 void SwitchRendererThreadExit();
 #endif
@@ -232,6 +233,22 @@ int Latte_ThreadEntry()
 	// wait till a game is started
 	while( true )
 	{
+#if defined(__SWITCH2__)
+		// GameShare lobby: the render thread draws the lobby until the lobby hands over to the title
+		if (SwitchGameShare_LobbyActive())
+		{
+			g_renderer->DrawEmptyFrame(true);
+			g_renderer->CancelScreenshotRequest();
+			std::this_thread::sleep_for(std::chrono::milliseconds(1000/60));
+			continue;
+		}
+		if (!CafeSystem::IsTitleRunning() && Latte_GetStopSignal())
+		{
+			// lobby ended without starting a title
+			LatteThread_Exit();
+			return 0;
+		}
+#endif
 		if( CafeSystem::IsTitleRunning() )
 			break;
 
@@ -294,6 +311,11 @@ std::mutex sLatteThreadStateMutex;
 void Latte_Start()
 {
 	std::unique_lock _lock(sLatteThreadStateMutex);
+#if defined(__SWITCH2__)
+	// already started early by the GameShare lobby
+	if (sLatteThreadRunning)
+		return;
+#endif
 	cemu_assert_debug(!sLatteThreadRunning);
 	sLatteThreadRunning = true;
 	sLatteThreadFinishedInit = false;

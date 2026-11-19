@@ -22,6 +22,8 @@ void SwitchPlatform_ApplyWindowSurfaceSize(int width, int height);
 bool SwitchPlatform_ShouldReturnToLauncher();
 const std::string& SwitchPlatform_LauncherPath();
 void SwitchPlatform_SetGamePadLayout(SwitchGamePadLayout layout);
+// Bypasses the GameShare lock; only GameShare itself should call this.
+void SwitchPlatform_ForceGamePadLayout(SwitchGamePadLayout layout);
 SwitchGamePadLayout SwitchPlatform_GetGamePadLayout();
 void SwitchPlatform_CycleGamePadMode();
 bool SwitchPlatform_TakeGamePadLayoutChange();

@@ -18,6 +18,7 @@
 #include "imgui/imgui_extension.h"
 #include "platform/switch/SwitchAmiibo.h"
 #include "platform/switch/SwitchInput.h"
+#include "platform/switch/SwitchGameShare.h"
 #include "platform/switch/SwitchLSFG.h"
 #if defined(ENABLE_DEKO3D)
 #include "platform/switch/SwitchLSFGDeko.h"
@@ -443,7 +444,10 @@ void RenderMainPage()
 	SelectableRow(row, 0, kMainRowHeight);
 	std::snprintf(row, sizeof(row), "Other controllers   <  %s  >", ControllerTypeName(SwitchInput_GetSecondaryControllerType()));
 	SelectableRow(row, 1, kMainRowHeight);
-	std::snprintf(row, sizeof(row), "GamePad screen      <  %s  >", GamePadLayoutName(SwitchPlatform_GetGamePadLayout()));
+	if (SwitchGameShare_Active())
+		std::snprintf(row, sizeof(row), "GamePad screen      %s (set by GameShare)", GamePadLayoutName(SwitchPlatform_GetGamePadLayout()));
+	else
+		std::snprintf(row, sizeof(row), "GamePad screen      <  %s  >", GamePadLayoutName(SwitchPlatform_GetGamePadLayout()));
 	SelectableRow(row, 2, kMainRowHeight);
 	const char* frameGenerationStatus = !SwitchLSFG_IsPrepared() ? "Not prepared" :
 		(!SwitchLSFG_IsAvailable() ? "Unavailable" :

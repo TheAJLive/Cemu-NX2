@@ -24,6 +24,7 @@ extern "C" {
 #include "input/emulated/WiimoteController.h"
 #include "input/motion/MotionHandler.h"
 #include "platform/switch/SwitchInput.h"
+#include "platform/switch/SwitchGameShare.h"
 #include "platform/switch/SwitchOverlay.h"
 #include "platform/switch/SwitchPlatform.h"
 
@@ -98,7 +99,8 @@ class SwitchGamepadController : public ControllerBase
 	bool has_rumble() override
 	{
 		std::scoped_lock lock(m_padMutex);
-		return std::any_of(m_vibration.begin(), m_vibration.end(), [](const auto& device) { return device.ready; });
+		return SwitchGameShare_Active() ||
+		       std::any_of(m_vibration.begin(), m_vibration.end(), [](const auto& device) { return device.ready; });
 	}
 	void start_rumble() override { sendVibration(std::clamp(get_settings().rumble, 0.0f, 1.0f)); }
 	void stop_rumble() override { sendVibration(0.0f); }
@@ -150,8 +152,22 @@ class SwitchGamepadController : public ControllerBase
 	{
 		padUpdate(&m_pad);
 		m_connected = padIsConnected(&m_pad);
-		updateMotion();
-		const uint64_t b = padGetButtons(&m_pad);
+		SwitchGameShareInput guest;
+		const bool haveGuest = SwitchGameShare_GetGuestInput(guest);
+		updateMotion(haveGuest && guest.hasMotion ? &guest : nullptr);
+		uint64_t b = padGetButtons(&m_pad);
+		HidAnalogStickState leftStick = m_pad.sticks[0];
+		HidAnalogStickState rightStick = m_pad.sticks[1];
+		// GamePad GameShare: the guest console's buttons and sticks are merged with the local pad.
+		// Guest gyro goes through updateMotion and guest touch through the touch block below.
+		if (haveGuest)
+		{
+			b |= guest.buttons;
+			if (std::abs(guest.stick[0]) > std::abs(leftStick.x)) leftStick.x = guest.stick[0];
+			if (std::abs(guest.stick[1]) > std::abs(leftStick.y)) leftStick.y = guest.stick[1];
+			if (std::abs(guest.stick[2]) > std::abs(rightStick.x)) rightStick.x = guest.stick[2];
+			if (std::abs(guest.stick[3]) > std::abs(rightStick.y)) rightStick.y = guest.stick[3];
+		}
 		if (SwitchOverlay_IsInputCaptured(b))
 		{
 			const bool clearMouse = m_touchDown || m_mainMouseWasDown;
@@ -173,13 +189,24 @@ class SwitchGamepadController : public ControllerBase
 			const bool previousTouchDown = m_touchDown;
 			const glm::vec2 previousTouchPos = m_touchPos;
 			HidTouchScreenState ts{};
-			if (hidGetTouchScreenStates(&ts, 1) && ts.count > 0)
+			bool haveTouch = hidGetTouchScreenStates(&ts, 1) && ts.count > 0;
+			const bool guestTouch = haveGuest && guest.touchDown;
+			if (guestTouch)
+			{
+				// The guest's screen shows the streamed GamePad view full-screen: no layout remap.
+				ts = {};
+				ts.count = 1;
+				ts.touches[0].x = (u32)std::clamp(guest.touchX, 0, 1279);
+				ts.touches[0].y = (u32)std::clamp(guest.touchY, 0, 719);
+				haveTouch = true;
+			}
+			if (haveTouch)
 			{
 				const float nx = std::clamp((float)ts.touches[0].x / 1280.0f, 0.0f, 1.0f);
 				const float ny = std::clamp((float)ts.touches[0].y / 720.0f, 0.0f, 1.0f);
 				glm::vec2 nextTouch{nx, ny};
 				bool touchAccepted = true;
-				if (SwitchPlatform_IsGamePadCompositeActive())
+				if (!guestTouch && SwitchPlatform_IsGamePadCompositeActive())
 				{
 					int x, y, width, height;
 					SwitchPlatform_GetGamePadImageRect(true, 1280, 720, 854, 480, x, y, width, height);
@@ -241,10 +268,10 @@ class SwitchGamepadController : public ControllerBase
 		set(kButton9, b & HidNpadButton_StickR);
 
 		constexpr float kInv = 1.0f / 32767.0f;
-		const float lx = std::clamp(m_pad.sticks[0].x * kInv, -1.0f, 1.0f);
-		const float ly = std::clamp(m_pad.sticks[0].y * kInv, -1.0f, 1.0f);
-		const float rx = std::clamp(m_pad.sticks[1].x * kInv, -1.0f, 1.0f);
-		const float ry = std::clamp(m_pad.sticks[1].y * kInv, -1.0f, 1.0f);
+		const float lx = std::clamp(leftStick.x * kInv, -1.0f, 1.0f);
+		const float ly = std::clamp(leftStick.y * kInv, -1.0f, 1.0f);
+		const float rx = std::clamp(rightStick.x * kInv, -1.0f, 1.0f);
+		const float ry = std::clamp(rightStick.y * kInv, -1.0f, 1.0f);
 		s.axis = {lx, ly};
 		s.rotation = {rx, ry};
 		constexpr float th = 0.15f;
@@ -364,10 +391,44 @@ class SwitchGamepadController : public ControllerBase
 		return -1;
 	}
 
-	void updateMotion()
+	// Feeds one guest gyro sample (GameShare) through the same handler as local motion.
+	void updateGuestMotion(const SwitchGameShareInput& guest)
+	{
+		const auto now = std::chrono::steady_clock::now();
+		if (m_guestMotionValid && guest.motionSampling == m_guestMotionSampling)
+			return;
+		float deltaTime = 1.0f / 60.0f;
+		if (m_guestMotionValid)
+			deltaTime = std::chrono::duration<float>(now - m_guestMotionTime).count();
+		deltaTime = std::clamp(deltaTime, 0.001f, 0.1f);
+		m_guestMotionValid = true;
+		m_guestMotionSampling = guest.motionSampling;
+		m_guestMotionTime = now;
+		for (float v : guest.gyro) if (!std::isfinite(v)) return;
+		for (float v : guest.accel) if (!std::isfinite(v)) return;
+		m_hasMotion = true;
+		m_motionHandlers[0].processMotionSample(deltaTime,
+			guest.gyro[0] * kTau, -guest.gyro[2] * kTau, guest.gyro[1] * kTau,
+			guest.accel[0], -guest.accel[2], guest.accel[1]);
+		const MotionSample sample = m_motionHandlers[0].getMotionSample();
+		{
+			std::scoped_lock lock(m_motionMutex);
+			m_motionSample = sample;
+		}
+		if (m_hasPointer)
+			updatePointer(sample, deltaTime);
+	}
+
+	void updateMotion(const SwitchGameShareInput* guest = nullptr)
 	{
 		if (!m_enableMotion)
 			return;
+		if (guest)
+		{
+			updateGuestMotion(*guest);
+			return;
+		}
+		m_guestMotionValid = false;
 		int handleIndex = getActiveMotionHandle();
 		const auto now = std::chrono::steady_clock::now();
 		if (handleIndex < 0 && now >= m_nextMotionProbe)
@@ -467,6 +528,8 @@ class SwitchGamepadController : public ControllerBase
 	void sendVibration(float amp)
 	{
 		std::scoped_lock lock(m_padMutex);
+		// guest rumbles too
+		SwitchGameShare_SetGuestRumble(amp);
 		initializeVibration();
 		const u32 style = padGetStyleSet(&m_pad);
 		VibrationDevice* active = nullptr;
@@ -516,6 +579,9 @@ class SwitchGamepadController : public ControllerBase
 	std::array<u64, 6> m_motionSamplingNumber{};
 	std::array<std::chrono::steady_clock::time_point, 6> m_motionSampleTime{};
 	std::array<WiiUMotionHandler, 6> m_motionHandlers{};
+	bool m_guestMotionValid = false;
+	uint64_t m_guestMotionSampling = 0;
+	std::chrono::steady_clock::time_point m_guestMotionTime{};
 	std::chrono::steady_clock::time_point m_nextMotionProbe{};
 	int m_activeMotionHandle = -1;
 	std::mutex m_motionMutex;

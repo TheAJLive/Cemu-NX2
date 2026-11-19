@@ -334,7 +334,7 @@ static const Choice C_uiLanguage[] = { {"System","system"}, {"English","en"}, {"
                                        {"Português","pt"}, {"简体中文","zh-CN"},
                                        {"繁體中文","zh-TW"} };
 
-enum { SCR_CPU, SCR_GRAPHICS, SCR_FRAMEGEN, SCR_AUDIO, SCR_OVERLAY, SCR_INPUT, SCR_COUNT };
+enum { SCR_CPU, SCR_GRAPHICS, SCR_FRAMEGEN, SCR_AUDIO, SCR_OVERLAY, SCR_INPUT, SCR_GAMESHARE, SCR_COUNT };
 
 static const Opt S_cpu[] = {
   O_CHOICE("CPU mode",         "cpuMode",       C_cpumode, "3"),
@@ -352,6 +352,10 @@ static const Opt S_graphics[] = {
   O_CHOICE("Downscale filter",      "DownscaleFilter",   C_filter,  "0"),
   O_CHOICE("Fullscreen scaling",    "FullscreenScaling", C_scaling, "0"),
   O_CHOICE("GamePad screen",        "GamePadLayout",     C_gamepadLayout, "off"),
+  O_ACTION("GameShare"),
+};
+static const Opt S_gameshare[] = {
+  O_CHOICE("Swap Host and Guest",   "GameShareSwap",     C_bool,    "false"),
 };
 static const Opt S_audio[] = {
   O_RANGE ("TV volume",        "TVVolume",    0, 100, 5, "50"),
@@ -402,6 +406,7 @@ static const Screen g_screens[SCR_COUNT] = {
   { "Audio",             S_audio,    (int)(sizeof(S_audio)/sizeof(Opt)) },
   { "Overlay",           S_overlay,  (int)(sizeof(S_overlay)/sizeof(Opt)) },
   { "Controller / Input / Accessories", S_input, (int)(sizeof(S_input)/sizeof(Opt)) },
+  { "GameShare",         S_gameshare, (int)(sizeof(S_gameshare)/sizeof(Opt)) },
 };
 
 struct SettingHelpEntry {
@@ -414,6 +419,8 @@ struct SettingHelpEntry {
  * gives global and per-game settings the same contextual help without adding
  * settings belonging to another emulator. */
 static const SettingHelpEntry SETTING_HELP[] = {
+  {"GameShareSwap", "GamePad GameShare",
+   "Off: the guest console acts as the Wii U GamePad (host sends the GamePad view, guest sends all inputs). On: the roles swap and the host sends the TV view instead. While this is On the TV/GamePad display choice is fixed and the GamePad screen setting and the quick-menu display toggle are ignored."},
   {"cpuMode", "CPU emulation",
    "Selects how Cemu executes the Wii U CPU. The multi-core recompiler is fastest on Switch. Use single-core only for compatibility testing; the interpreter is extremely slow and intended for debugging."},
   {"TimerShiftFactor", "Game timing / compatibility",
@@ -518,6 +525,9 @@ static SettingHelpInfo settingHelpFor(const Opt &option) {
     for(const SettingHelpEntry &entry:SETTING_HELP)
       if(!strcmp(entry.key,option.key)) return {entry.kind,entry.text};
   }
+  if(option.type==OT_ACTION && option.label && !strcmp(option.label,"GameShare"))
+    return {"GamePad GameShare",
+            "Opens the GameShare settings. Press Minus on the game list to start a GamePad GameShare session that lets another Nintendo Switch or Switch 2 console act as the GamePad."};
   if(option.type==OT_ACTION && option.label && !strcmp(option.label,"Control mapping"))
     return {"Controller mapping",
             "Opens the press-to-bind screen for every Wii U controller input. Select a control, then press the Switch button or trigger that should activate it."};
@@ -1467,7 +1477,8 @@ static void drawFooterHints(const FootItem *it,int n,int cy){
           !strcmp(button,"B")?BTN_CANCEL:
           !strcmp(button,"X")?BTN_X:
           !strcmp(button,"Y")?BTN_Y:
-          !strcmp(button,"+")?SDL_CONTROLLER_BUTTON_START:-1;
+          !strcmp(button,"+")?SDL_CONTROLLER_BUTTON_START:
+          !strcmp(button,"-")?SDL_CONTROLLER_BUTTON_BACK:-1;
         g_footN++;
       }
       if(i+1<layout.rowEnd[row]) x+=layout.gapAfter[i];
@@ -1475,8 +1486,8 @@ static void drawFooterHints(const FootItem *it,int n,int cy){
   }
 }
 
-static std::array<FootItem,3> libraryFooter(){
-  return {{{"A","Launch"},{"Y","Game Menu"},{"B","Quit"}}};
+static std::array<FootItem,4> libraryFooter(){
+  return {{{"A","Launch"},{"Y","Game Menu"},{"-","GamePad GameShare"},{"B","Quit"}}};
 }
 
 static void drawSettingsFooter(const char *text,int cy=-1){
@@ -4329,6 +4340,7 @@ static bool resetOption(const Opt &option) {
 
 static bool optionEnabled(int screen,const Opt &option) {
   if(option.type==OT_STATUS) return false;
+  if(option.key&&!strcmp(option.key,"GamePadLayout")&&!strcmp(iniGet("GameShareSwap","false"),"true")) return false;
   const bool nativeVulkan=!strcmp(iniGet("Wrapper/Renderer","vk"),"vk");
   const bool nativeDeko=!strcmp(iniGet("Wrapper/Renderer","vk"),"deko3d");
   if(!nativeVulkan && !nativeDeko && screen==SCR_FRAMEGEN) return false;
@@ -4475,6 +4487,7 @@ static const char *settingsScreenDescription(int screen) {
   switch(screen){
     case SCR_CPU: return "Controls Cemu's CPU execution mode, emulated timer rate, and hardware video decoding. Compatibility overrides should normally be applied per game.";
     case SCR_GRAPHICS: return "Controls presentation, shader compilation, image scaling, and how the Wii U TV and GamePad screens are arranged.";
+    case SCR_GAMESHARE: return "Settings for GamePad GameShare, which lets another Nintendo Switch or Switch 2 console act as the Wii U GamePad.";
     case SCR_FRAMEGEN: return "Configures LSFG 2x frame generation for Vulkan and Deko3D. It creates intermediate display frames but does not make Wii U emulation run faster.";
     case SCR_AUDIO: return "Controls the Wii U TV and GamePad audio streams, their volume, and the balance between output latency and stability.";
     case SCR_OVERLAY: return "Controls Cemu's in-game FPS and shader-compilation status displays and where the performance overlay appears.";
@@ -4863,6 +4876,7 @@ static void runSettings(int scr, const char *ctx) {
         case BTN_CONFIRM: {
           const Opt &o=S.opts[sel];
           if(o.type==OT_ACTION && scr==SCR_INPUT){ runInputMappingScreen(); beginScreenFx(); }
+          else if(o.type==OT_ACTION && scr==SCR_GRAPHICS){ runSettings(SCR_GAMESHARE,ctx); beginScreenFx(); }
           else if(o.type==OT_CHOICE && o.nch>2){ optChoosePopup(o); beginScreenFx(); }
           else adjust(o,1);
           break;
@@ -7282,7 +7296,7 @@ static bool pickIcon(Game &g, char *outPath, size_t outSize) {
   return false;
 }
 
-static void forwarderWizard(Game &g) {
+[[maybe_unused]] static void forwarderWizard(Game &g) {
   const GameDetailLayout layout=gameDetailLayout();
   const int isz=260;
   const int ix=layout.preview.x+(layout.preview.w-isz)/2;
@@ -7478,10 +7492,10 @@ static void measureTree(const std::string &path,size_t &files,uint64_t &bytes){
 }
 
 static const char *GAME_MENU_ITEMS[]={"Launch","Game settings","Graphics packs","Rename game",
-  "Cover settings","Create HOME shortcut","Favorite","Manage installed content","Clear shader caches",
+  "Cover settings","Favorite","Manage installed content","Clear shader caches",
   "Clear game settings","Delete game"};
-static const int GAME_MENU_COUNT=11;
-static const int GAME_MENU_MANAGE_START=7;
+static const int GAME_MENU_COUNT=10;
+static const int GAME_MENU_MANAGE_START=6;
 static const int GAME_MENU_SECTION_GAP=56;
 struct GameMenuLayout {
   GameDetailLayout detail;
@@ -7595,19 +7609,18 @@ static int perGameMenu(Game &g) {
             }
           }
           else if(sel==4){ coverSettings(g); beginScreenFx(); }
-          else if(sel==5){ forwarderWizard(g); beginScreenFx(); }
-          else if(sel==7){
+          else if(sel==6){
             if (!g.titleId) showTitleIdUnavailable("Installed content unavailable",g);
             else if (installedContentScreen(g.titleId) && g.path.empty()) return 2;
             beginScreenFx();
           }
-          else if(sel==8){ clearShaderCaches(g); beginScreenFx(); }
-          else if(sel==9){ g_game.kv.clear(); remove(gp.c_str()); g.hasCfg=false; toastStatic("Game settings cleared"); beginScreenFx(); }
-          else if(sel==6){
+          else if(sel==7){ clearShaderCaches(g); beginScreenFx(); }
+          else if(sel==8){ g_game.kv.clear(); remove(gp.c_str()); g.hasCfg=false; toastStatic("Game settings cleared"); beginScreenFx(); }
+          else if(sel==5){
             if(!g_favorites.erase(g.key)) g_favorites.insert(g.key);
             saveLibraryOrganization(); beginScreenFx();
           }
-          else if(sel==10){
+          else if(sel==9){
             if(g.path.empty()){
               if (installedContentScreen(g.titleId)) return 2;
               beginScreenFx();
@@ -8133,6 +8146,9 @@ static void drawLibraryEmpty(){
             tr(g_libraryView==LibraryView::All?"Settings":"All games"),COL_TXT);
 }
 
+// Drawn over the library grid just before it is presented (used by popups that keep the menu visible).
+static std::function<void()> g_gridOverlay;
+
 static void renderGrid(int selection,int top){
   g_cover_budget=COVER_REQUEST_BUDGET;
   Game *selected=visibleGame(selection);
@@ -8191,7 +8207,9 @@ static void renderGrid(int selection,int top){
       drawFooterHints(hints,2,SH-50);
     }
   }
-  drawFadeIn(); SDL_RenderPresent(g_ren);
+  drawFadeIn();
+  if(g_gridOverlay) g_gridOverlay();
+  SDL_RenderPresent(g_ren);
 }
 
 
@@ -8393,6 +8411,10 @@ static void initializeLauncherDefaults() {
   commitAll();
 }
 
+// Set when the user accepts the Minus-button GamePad GameShare prompt: the core is
+// launched into a GameShare lobby (no game) and owns the session from then on.
+static bool g_gameShareLobbyRequested=false;
+
 static bool writeLaunchHandoff(const std::vector<CemuKV> &settings,const std::string &renderer,
                               const std::string &gamePath,uint64_t titleId,bool lsfgPrepared) {
   std::string handoff;
@@ -8401,6 +8423,8 @@ static bool writeLaunchHandoff(const std::vector<CemuKV> &settings,const std::st
      !appendHandoffValue(handoff,"cpu_mode",cemuKVGet(settings,"cpuMode","3")) ||
      !appendHandoffValue(handoff,"renderer",renderer) ||
      !appendHandoffValue(handoff,"gamepad_layout",cemuKVGet(settings,"GamePadLayout","off")) ||
+     !appendHandoffValue(handoff,"gameshare_swap",cemuKVGet(settings,"GameShareSwap","false")) ||
+     !appendHandoffValue(handoff,"gameshare_lobby",g_gameShareLobbyRequested?"1":"0") ||
      !appendHandoffValue(handoff,"lsfg_enabled",lsfgPrepared?"true":"false") ||
      !appendHandoffValue(handoff,"lsfg_flow_scale",cemuKVGet(settings,"Wrapper/LSFGFlowScale","0.25")) ||
      !appendHandoffValue(handoff,"lsfg_performance",cemuKVGet(settings,"Wrapper/LSFGPerformance","true")) ||
@@ -8797,6 +8821,67 @@ int main(int argc, char **argv){
     userExit=true; running=false; return true;
   };
 
+  // Minus: offer a GamePad GameShare session. The popup is drawn over the live library grid.
+  auto requestGameShare=[&](){
+    if(addressSpaceError!=SwitchLaunch::Error::None){ showLaunchError(addressSpaceError); return false; }
+    const std::string title="GamePad GameShare";
+    const std::vector<std::string> body=wrapDialogLines({std::string(LauncherLocalization::Translate(
+      "This will start a GameShare session that will allow you to use another Nintendo Switch or Nintendo Switch 2 console as a GamePad. Would you like to start that now?"))},SW*3/4-64);
+    const int pw=SW*3/4,ph=std::min(SH-64,230+(int)body.size()*40),px=(SW-pw)/2,py=(SH-ph)/2;
+    const int bw=std::min(210,(pw-54)/2),bh=56,bby=py+ph-bh-22,yesx=SW/2-bw-12,nox=SW/2+12;
+    g_gridOverlay=[&](){
+      fillRect(0,0,SW,SH,SDL_Color{0,0,0,120});
+      glassPanel(px,py,pw,ph);
+      drawText(g_font_big,px+28,py+22,fittedText(g_font_big,title.c_str(),pw-56).c_str(),COL_SEL);
+      fillRect(px+28,py+72,pw-56,1,SDL_Color{255,255,255,24});
+      int y=py+96;
+      for(const std::string &line:body){
+        if(y+40>=bby-8) break;
+        drawTextC(g_font,SW/2,y,line.c_str(),COL_TXT);
+        y+=40;
+      }
+      const auto drawChoice=[&](int x,SDL_Texture *glyph,const char *label){
+        int gw=0,gh=0;
+        if(glyph){ SDL_QueryTexture(glyph,nullptr,nullptr,&gw,&gh); gw/=GLYPH_SS; gh/=GLYPH_SS; }
+        const int labelWidth=textW(g_font,label);
+        const int left=x+(bw-gw-8-labelWidth)/2;
+        if(glyph){ SDL_Rect icon={left,bby+(bh-gh)/2,gw,gh}; SDL_RenderCopy(g_ren,glyph,nullptr,&icon); }
+        drawText(g_font,left+gw+8,bby+(bh-fontHeight(g_font))/2,label,COL_TXT);
+      };
+      roundedPanel(yesx,bby,bw,bh,SDL_Color{28,69,128,255},COL_SEL,6);
+      drawChoice(yesx,g_gA,"Yes");
+      roundedPanel(nox,bby,bw,bh,SDL_Color{28,69,128,255},COL_SEL,6);
+      drawChoice(nox,g_gB,"No");
+    };
+    bool accepted=false,done=false;
+    while(!done){
+      if(!beginUiFrame()) break;
+      SDL_Event e; navRepeat();
+      while(pollUiEvent(e)){
+        pumpStick(e);
+        { int tx=0,ty=0; if(touchFeed(e,&tx,&ty)==TOUCH_TAP && ty>=bby && ty<bby+bh){
+            if(tx>=yesx && tx<yesx+bw){ accepted=true; done=true; }
+            else if(tx>=nox && tx<nox+bw) done=true;
+        } }
+        if(e.type==SDL_QUIT) done=true;
+        if(e.type==SDL_CONTROLLERBUTTONDOWN){
+          if(e.cbutton.button==BTN_CONFIRM){ accepted=true; done=true; }
+          else if(e.cbutton.button==BTN_CANCEL) done=true;
+        }
+      }
+      if(done) break;
+      renderGrid(sel,top);
+      waitForNextUiFrame();
+    }
+    g_gridOverlay=nullptr;
+    beginScreenFx();
+    if(!accepted) return false;
+    g_gameShareLobbyRequested=true;
+    launchKey.clear(); launchPath.clear(); launchTitleId=0;
+    launch=true; running=false;
+    return true;
+  };
+
   bool forwarderRequested=false,forwarderMatched=false;
   std::string forwarderKey;
   for(int ai=allowShortcutAutolaunch?1:argc; ai+1<argc; ai++) if(strcmp(argv[ai],"-g")==0){
@@ -9053,6 +9138,9 @@ int main(int argc, char **argv){
             beginScreenFx();
           }
           break;
+        case SDL_CONTROLLER_BUTTON_BACK:
+          if(!g_libraryHeaderFocused) requestGameShare();
+          break;
         case BTN_CANCEL:
           if(g_libraryHeaderFocused) g_libraryHeaderFocused=false;
           else requestExit();
@@ -9104,7 +9192,9 @@ int main(int argc, char **argv){
   if(launch && envHasNextLoad()){
     std::vector<CemuKV> eff = buildEffectiveSettings(launchKey);
     const char *configuredRenderer=cemuKVGet(eff,"Wrapper/Renderer","vk");
-    const std::string renderer=!strcmp(configuredRenderer,"gl") ? "gl" :
+    // The GameShare lobby is drawn through the Vulkan renderer.
+    const std::string renderer=g_gameShareLobbyRequested ? "vk" :
+                               !strcmp(configuredRenderer,"gl") ? "gl" :
                                !strcmp(configuredRenderer,"zink") ? "zink" :
                                !strcmp(configuredRenderer,"deko3d") ? "deko3d" : "vk";
     const auto &payload=emulatorPayload(renderer);

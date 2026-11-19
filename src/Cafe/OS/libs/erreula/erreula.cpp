@@ -11,6 +11,10 @@
 #include "Cafe/OS/libs/vpad/vpad.h"
 #include "OS/libs/coreinit/coreinit_DynLoad.h"
 
+#if defined(__SWITCH__)
+#include <switch.h>
+#endif
+
 namespace nn
 {
 namespace erreula
@@ -474,6 +478,29 @@ namespace erreula
 				break;
 			}
 			}
+#if defined(__SWITCH__)
+			// ImGui isn't driven by the pad on Switch, so poll it here. A = OK, B = close.
+			{
+				static PadState s_dialogPad;
+				static bool s_dialogPadReady = false;
+				if (!s_dialogPadReady)
+				{
+					padInitializeAny(&s_dialogPad);
+					s_dialogPadReady = true;
+				}
+				padUpdate(&s_dialogPad);
+				const u64 pressed = padGetButtonsDown(&s_dialogPad);
+				if (pressed & HidNpadButton_A)
+					hasLeftButtonPressed = true;
+				if (pressed & HidNpadButton_B)
+				{
+					if (appearArg.errorType == ErrorDialogType::TextTwoButton)
+						hasRightButtonPressed = true;
+					else
+						hasLeftButtonPressed = true;
+				}
+			}
+#endif
 			if (!g_errEula.errEulaInstance->IsDecideSelectButtonError())
 			{
 				if (hasLeftButtonPressed)
