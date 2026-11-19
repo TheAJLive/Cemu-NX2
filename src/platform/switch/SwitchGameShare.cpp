@@ -36,7 +36,7 @@ constexpr s32 kGuestAudioMaxFrames = 8192;
 std::atomic_bool s_lobbyRequested{false};
 std::atomic_bool s_swapRoles{false};
 std::atomic_bool s_active{false};
-std::atomic_bool s_separate{false};
+std::atomic_bool s_separate{true};
 std::mutex s_hostMutex;
 FILE* s_log = nullptr;
 std::mutex s_logMutex;
@@ -278,14 +278,13 @@ void StopPresenter()
 }
 } // namespace
 
-void SwitchGameShare_Configure(bool lobbyRequested, bool swapRoles, bool separateScreens)
+void SwitchGameShare_Configure(bool lobbyRequested, bool swapRoles)
 {
 	s_lobbyRequested.store(lobbyRequested, std::memory_order_release);
 	s_swapRoles.store(swapRoles, std::memory_order_release);
-	s_separate.store(separateScreens, std::memory_order_release);
+	s_separate.store(true, std::memory_order_release);
 }
 
-bool SwitchGameShare_SeparateScreens() { return s_separate.load(std::memory_order_acquire); }
 bool SwitchGameShare_SeparateActive() { return s_separate.load(std::memory_order_acquire) && s_active.load(std::memory_order_acquire); }
 
 bool SwitchGameShare_WantsGuestFrame(bool padView)
@@ -339,9 +338,8 @@ SwitchGameShareResult SwitchGameShare_Begin(std::string& error)
 	s_host = GameShareLocalHost{};
 	{
 		std::scoped_lock lock(s_logMutex);
-		if (s_log)
-			std::fclose(s_log);
-		s_log = std::fopen(kLogPath, "w");
+		if (!s_log)
+			s_log = std::fopen(kLogPath, "w");
 	}
 	const bool separate = s_separate.load();
 	Log("GameShare session, %s", separate ? "separate screens" : "mirrored screen");
@@ -391,10 +389,11 @@ SwitchGameShareResult SwitchGameShare_Begin(std::string& error)
 		if (R_FAILED(rc))
 		{
 			s_display = nullptr;
-			error = DescribeFailure("opening the guest display", rc);
-			WriteErrorLog(error);
+			WriteErrorLog(DescribeFailure("opening the guest display", rc));
 			SwitchGameShare_End();
-			return SwitchGameShareResult::Failed;
+			Log("falling back to a mirrored screen");
+			s_separate.store(false, std::memory_order_release);
+			return SwitchGameShare_Begin(error);
 		}
 	}
 

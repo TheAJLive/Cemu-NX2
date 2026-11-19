@@ -355,7 +355,6 @@ static const Opt S_graphics[] = {
   O_ACTION("GameShare"),
 };
 static const Opt S_gameshare[] = {
-  O_CHOICE("Separate screens",      "GameShareSeparate", C_bool,    "false"),
   O_CHOICE("Swap Host and Guest",   "GameShareSwap",     C_bool,    "false"),
 };
 static const Opt S_audio[] = {
@@ -420,8 +419,6 @@ struct SettingHelpEntry {
  * gives global and per-game settings the same contextual help without adding
  * settings belonging to another emulator. */
 static const SettingHelpEntry SETTING_HELP[] = {
-  {"GameShareSeparate", "GamePad GameShare",
-   "Off: the guest mirrors the host's screen. On: the guest gets its own picture (the GamePad view) and its own GamePad audio, while the host keeps the TV view. Needs a bit more performance. Takes effect when the session starts."},
   {"GameShareSwap", "GamePad GameShare",
    "Off: the guest console acts as the Wii U GamePad (host sends the GamePad view, guest sends all inputs). On: the roles swap and the host sends the TV view instead. While this is On the TV/GamePad display choice is fixed and the GamePad screen setting and the quick-menu display toggle are ignored."},
   {"cpuMode", "CPU emulation",
@@ -8427,7 +8424,6 @@ static bool writeLaunchHandoff(const std::vector<CemuKV> &settings,const std::st
      !appendHandoffValue(handoff,"renderer",renderer) ||
      !appendHandoffValue(handoff,"gamepad_layout",cemuKVGet(settings,"GamePadLayout","off")) ||
      !appendHandoffValue(handoff,"gameshare_swap",cemuKVGet(settings,"GameShareSwap","false")) ||
-     !appendHandoffValue(handoff,"gameshare_separate",cemuKVGet(settings,"GameShareSeparate","false")) ||
      !appendHandoffValue(handoff,"gameshare_lobby",g_gameShareLobbyRequested?"1":"0") ||
      !appendHandoffValue(handoff,"lsfg_enabled",lsfgPrepared?"true":"false") ||
      !appendHandoffValue(handoff,"lsfg_flow_scale",cemuKVGet(settings,"Wrapper/LSFGFlowScale","0.25")) ||

@@ -525,8 +525,7 @@ namespace WindowSystem
 			gamePadLayout == "above" ? SwitchGamePadLayout::Above : SwitchGamePadLayout::Disabled);
 
 		SwitchGameShare_Configure(Handoff("gameshare_lobby", "0") == "1",
-		                          Handoff("gameshare_swap", "false") == "true",
-		                          Handoff("gameshare_separate", "false") == "true");
+		                          Handoff("gameshare_swap", "false") == "true");
 
 		auto applyUsbSetting = [](const char* key, auto& value) {
 			const std::string setting = Handoff(key);

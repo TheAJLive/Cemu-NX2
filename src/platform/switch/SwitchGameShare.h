@@ -33,13 +33,12 @@ enum class SwitchGameShareResult
 	Failed,
 };
 
-void SwitchGameShare_Configure(bool lobbyRequested, bool swapRoles, bool separateScreens);
+void SwitchGameShare_Configure(bool lobbyRequested, bool swapRoles);
 bool SwitchGameShare_LobbyRequested();
 // Off: the guest is the GamePad (host sends the GamePad view). On: host sends the TV view.
 bool SwitchGameShare_SwapRoles();
-// Separate screens: the guest gets its own picture (GamePad, or TV when swapped) and its own audio,
-// the host keeps the other one. Chosen before the session starts.
-bool SwitchGameShare_SeparateScreens();
+// The guest gets its own picture (GamePad, or TV when swapped) and its own audio, the host keeps the
+// other one. If the guest display can't be opened the session falls back to mirroring the host screen.
 // True while a separate-screens session is running.
 bool SwitchGameShare_SeparateActive();
 // True when the renderer should capture this view (padView = GamePad) for the guest.
