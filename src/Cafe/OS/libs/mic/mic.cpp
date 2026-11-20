@@ -144,7 +144,11 @@ void micExport_MICInit(PPCInterpreter_t* hCPU)
 	osLib_returnFromFunction(hCPU, (drcIndex==0)?MIC_HANDLE_DRC0:MIC_HANDLE_DRC1); // success
 
 	auto& config = GetConfig();
+#if defined(__SWITCH__)
+	const auto audio_api = IAudioInputAPI::Switch;
+#else
 	const auto audio_api = IAudioInputAPI::Cubeb; // change this if more input apis get implemented
+#endif
 
 	std::unique_lock lock(g_audioInputMutex);
 	if (!g_inputAudio)
@@ -156,6 +160,11 @@ void micExport_MICInit(PPCInterpreter_t* hCPU)
 			const auto it = std::find_if(devices.begin(), devices.end(), [&config](const auto& d) {return d->GetIdentifier() == config.input_device; });
 			if (it != devices.end())
 				device_description = *it;
+#if defined(__SWITCH__)
+			// There's only the console's microphone.
+			if (!device_description && !devices.empty())
+				device_description = devices.front();
+#endif
 		}
 
 		if (device_description)

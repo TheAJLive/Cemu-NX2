@@ -34,6 +34,8 @@ if(PLATFORM_SWITCH)
 	target_sources(CemuAudio PRIVATE
 		SwitchAudioAPI.h
 		${CMAKE_SOURCE_DIR}/src/platform/switch/SwitchAudioAPI.cpp
+		SwitchMicInputAPI.h
+		${CMAKE_SOURCE_DIR}/src/platform/switch/SwitchMicInput.cpp
 	)
 endif()
 
