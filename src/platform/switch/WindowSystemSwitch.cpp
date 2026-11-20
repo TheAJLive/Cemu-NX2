@@ -795,8 +795,17 @@ namespace WindowSystem
 		// The lobby is drawn on the TV surface. Roles are applied once a game starts.
 		SwitchPlatform_ForceGamePadLayout(SwitchGamePadLayout::Disabled);
 		CafeSystem::PrepareLobbyMemorySpace();
-		if (!SwitchCreateRenderer(s_surfaceWidth.load(std::memory_order_acquire),
-		                          s_surfaceHeight.load(std::memory_order_acquire), "vk"))
+		bool rendererReady = SwitchCreateRenderer(s_surfaceWidth.load(std::memory_order_acquire),
+		                                          s_surfaceHeight.load(std::memory_order_acquire), "vk");
+		if (!rendererReady && SwitchGameShare_SeparateActive())
+		{
+			// Separate screens need extra memory; retry with the plain mirrored session.
+			if (!SwitchGameShare_FallBackToMirror(error))
+				throw std::runtime_error("GameShare: " + error);
+			rendererReady = SwitchCreateRenderer(s_surfaceWidth.load(std::memory_order_acquire),
+			                                     s_surfaceHeight.load(std::memory_order_acquire), "vk");
+		}
+		if (!rendererReady)
 			throw std::runtime_error("failed to initialize the Vulkan renderer for the GameShare lobby");
 		SwitchGameShare_LobbySetActive(true);
 		SwitchGameShare_LobbyBegin();

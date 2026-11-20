@@ -1,6 +1,6 @@
 #pragma once
 
-// GamePad GameShare: a Switch 2 hosts a local wireless GameShare session (stpl:u, libounce PR #4)
+// GamePad GameShare: a Switch 2 hosts a local wireless GameShare session (stpl:u, libounce's GameShare host API)
 // and another Nintendo Switch / Switch 2 console acts as the Wii U GamePad.
 //
 // The core owns the session. The launcher only asks for it (Minus on the game list) and starts the
@@ -50,6 +50,10 @@ bool SwitchGameShare_WriteGuestAudio(const int16_t* frames, uint32_t frameCount)
 
 // Opens the session, shows the system matchmaking applet, and starts streaming once a guest joined.
 SwitchGameShareResult SwitchGameShare_Begin(std::string& error);
+// Restarts the session mirroring the host screen. The guest has to join again.
+bool SwitchGameShare_FallBackToMirror(std::string& error);
+// Adds a line to sdmc:/switch/cemu/gameshare-log.txt.
+void SwitchGameShare_Log(const char* text);
 void SwitchGameShare_End();
 // True from a successful Begin until End. While true the TV/GamePad layout is controlled by GameShare.
 bool SwitchGameShare_Active();

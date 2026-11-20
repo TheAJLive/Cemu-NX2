@@ -26,12 +26,10 @@
 
 namespace
 {
-constexpr Result kMatchmakeCancelled = MAKERESULT(287, 30);
 constexpr const char* kErrorLogPath = "sdmc:/switch/cemu/gameshare-error.log";
 constexpr const char* kLogPath = "sdmc:/switch/cemu/gameshare-log.txt";
 constexpr u32 kGuestWidth = 1280;
 constexpr u32 kGuestHeight = 720;
-constexpr s32 kGuestAudioMaxFrames = 8192;
 
 std::atomic_bool s_lobbyRequested{false};
 std::atomic_bool s_swapRoles{false};
@@ -47,8 +45,11 @@ std::atomic<u32> s_guestPadStyle{0};
 std::mutex s_nicknameMutex;
 std::string s_guestNickname;
 
-GameShareLocalHost s_host{};
-GameShareLocalGuestDisplay* s_display = nullptr;
+GameShareHost s_host{};
+NWindow s_guestWindow{};
+Framebuffer s_guestFb{};
+bool s_guestWindowOpen = false;
+bool s_guestFbOpen = false;
 std::mutex s_frameMutex;
 std::condition_variable s_frameCv;
 std::vector<uint32_t> s_frame;
@@ -124,9 +125,8 @@ void DrawText(std::vector<uint32_t>& pixels, int x, int y, const std::string& te
 std::string DescribeFailure(const char* what, Result rc)
 {
 	char text[256];
-	std::snprintf(text, sizeof(text), "%s failed (0x%08x, module %u desc %u) during '%s'", what,
-	              (unsigned)rc, (unsigned)R_MODULE(rc), (unsigned)R_DESCRIPTION(rc),
-	              s_host.operation ? s_host.operation : "?");
+	std::snprintf(text, sizeof(text), "%s failed (0x%08x, module %u desc %u)", what,
+	              (unsigned)rc, (unsigned)R_MODULE(rc), (unsigned)R_DESCRIPTION(rc));
 	return text;
 }
 
@@ -218,6 +218,22 @@ void PaintLobbyFrame(std::vector<uint32_t>& pixels, const char* heading)
 		DrawText(pixels, 60, 420, "> " + selected, 2, RGBA8_MAXALPHA(245, 245, 245));
 }
 
+// Copies a 1280x720 RGBA frame onto the guest's window.
+bool PresentGuestFrame(const uint32_t* rgba)
+{
+	if (!s_guestFbOpen)
+		return false;
+	u32 bytes = 0;
+	u32* out = static_cast<u32*>(framebufferBegin(&s_guestFb, &bytes));
+	if (!out)
+		return false;
+	const u32 stride = bytes / 4;
+	for (u32 row = 0; row < kGuestHeight; ++row)
+		std::memcpy(out + (size_t)row * stride, rgba + (size_t)row * kGuestWidth, kGuestWidth * sizeof(uint32_t));
+	framebufferEnd(&s_guestFb);
+	return true;
+}
+
 void PresenterMain()
 {
 	std::vector<uint32_t> local;
@@ -247,11 +263,10 @@ void PresenterMain()
 		}
 		if (local.size() != (size_t)kGuestWidth * kGuestHeight)
 			continue;
-		const Result rc = gameshareLocalGuestDisplayPresent(s_display, local.data(), kGuestWidth);
-		if (R_SUCCEEDED(rc))
+		if (PresentGuestFrame(local.data()))
 			++s_framesPresented;
-		else if (R_VALUE(rc) != KERNELRESULT(TimedOut))
-			Log("present failed 0x%08x", (unsigned)rc);
+		else
+			Log("present failed");
 		const uint64_t now = NowMs();
 		if (now - lastStats >= 5000)
 		{
@@ -285,6 +300,16 @@ void SwitchGameShare_Configure(bool lobbyRequested, bool swapRoles)
 	s_separate.store(true, std::memory_order_release);
 }
 
+void SwitchGameShare_Log(const char* text) { Log("%s", text); }
+
+bool SwitchGameShare_FallBackToMirror(std::string& error)
+{
+	Log("falling back to a mirrored screen");
+	SwitchGameShare_End();
+	s_separate.store(false, std::memory_order_release);
+	return SwitchGameShare_Begin(error) == SwitchGameShareResult::Ok;
+}
+
 bool SwitchGameShare_SeparateActive() { return s_separate.load(std::memory_order_acquire) && s_active.load(std::memory_order_acquire); }
 
 bool SwitchGameShare_WantsGuestFrame(bool padView)
@@ -309,18 +334,18 @@ bool SwitchGameShare_WriteGuestAudio(const int16_t* frames, uint32_t frameCount)
 	if (!SwitchGameShare_SeparateActive())
 		return false;
 	std::scoped_lock lock(s_hostMutex);
-	s32 filled = 0;
-	if (R_FAILED(gameshareLocalHostGetGuestAudioFilled(&s_host, 0, &filled)))
+	u32 freeFrames = 0;
+	if (R_FAILED(stplGetGuestAudioFreeFrames(0, &freeFrames)))
 		return true;
-	s_audioFilled.store(filled);
-	if (filled > kGuestAudioMaxFrames)
+	s_audioFilled.store((s32)freeFrames);
+	if (freeFrames == 0)
 	{
 		++s_audioDropped;
 		return true;
 	}
-	s32 written = 0;
-	if (R_SUCCEEDED(gameshareLocalHostWriteGuestAudio(&s_host, 0, frames, (s32)frameCount, &written)))
-		s_audioWritten += (uint32_t)std::max<s32>(written, 0);
+	u32 written = 0;
+	if (R_SUCCEEDED(stplWriteGuestAudio(0, frames, std::min(frameCount, freeFrames), &written)))
+		s_audioWritten += written;
 	return true;
 }
 
@@ -335,7 +360,7 @@ SwitchGameShareResult SwitchGameShare_Begin(std::string& error)
 	error.clear();
 	if (s_hostOpen)
 		return SwitchGameShareResult::Ok;
-	s_host = GameShareLocalHost{};
+	s_host = GameShareHost{};
 	{
 		std::scoped_lock lock(s_logMutex);
 		if (!s_log)
@@ -343,69 +368,32 @@ SwitchGameShareResult SwitchGameShare_Begin(std::string& error)
 	}
 	const bool separate = s_separate.load();
 	Log("GameShare session, %s", separate ? "separate screens" : "mirrored screen");
-	GameShareLocalStage stage = GameShareLocalStage_Lookup;
-	Result rc = gameshareLocalOpen(&s_host.client, &stage);
-	if (R_FAILED(rc))
-	{
-		error = DescribeFailure("opening stpl:u", rc) + " (stage " + std::to_string((int)stage) + ")";
-		WriteErrorLog(error);
-		return SwitchGameShareResult::Failed;
-	}
-	s_hostOpen = true;
-
-	const GameShareLocalAudio audio{true, 1.0f, 1.0f, 1.0f};
-	rc = gameshareLocalHostPrepareEx(&s_host, 1, &audio, separate ? 1 : 0);
-	if (R_FAILED(rc))
-	{
-		error = DescribeFailure("preparing the session", rc);
-		WriteErrorLog(error);
-		SwitchGameShare_End();
-		return SwitchGameShareResult::Failed;
-	}
-	// Guest touch and gyro; must be enabled after prepare and before matchmaking.
-	rc = gameshareLocalHostEnableSensors(&s_host, 1280, 720);
-	if (R_FAILED(rc))
-	{
-		error = DescribeFailure("enabling guest touch and gyro", rc);
-		WriteErrorLog(error);
-		SwitchGameShare_End();
-		return SwitchGameShareResult::Failed;
-	}
 
 	AccountUid uid{};
 	if (!GetHostUser(uid))
 	{
 		error = "no user account is available to host the session";
 		WriteErrorLog(error);
-		SwitchGameShare_End();
 		return SwitchGameShareResult::Failed;
 	}
 
-	if (separate)
-	{
-		// The guest display has to exist before matchmaking.
-		rc = gameshareLocalGuestDisplayOpen(&s_display, 0, kGuestWidth, kGuestHeight);
-		Log("open guest display (%s) -> 0x%08x", gameshareLocalGuestDisplayLastStep(), (unsigned)rc);
-		if (R_FAILED(rc))
-		{
-			s_display = nullptr;
-			WriteErrorLog(DescribeFailure("opening the guest display", rc));
-			SwitchGameShare_End();
-			Log("falling back to a mirrored screen");
-			s_separate.store(false, std::memory_order_release);
-			return SwitchGameShare_Begin(error);
-		}
-	}
-
-	rc = gameshareLocalHostMatchmake(&s_host, uid);
-	if (rc == kMatchmakeCancelled)
+	GameShareHostConfig config;
+	gameshareHostConfigDefault(&config, 1);
+	config.mode = separate ? StplStreamingMode_SeparateViews : StplStreamingMode_Mirror;
+	config.audio = {true, 1.0f, 1.0f, 1.0f};
+	config.user = uid;
+	// Guest touch and gyro are on by default, scaled to 1280x720.
+	s_hostOpen = true;
+	Result rc = gameshareHostCreate(&s_host, &config);
+	Log("gameshareHostCreate (mode %d) -> 0x%08x", (int)config.mode, (unsigned)rc);
+	if (rc == GAMESHARE_RESULT_MATCHMAKING_CANCELLED)
 	{
 		SwitchGameShare_End();
 		return SwitchGameShareResult::Cancelled;
 	}
 	if (R_FAILED(rc))
 	{
-		error = DescribeFailure("matchmaking", rc);
+		error = DescribeFailure("starting the session", rc);
 		WriteErrorLog(error);
 		SwitchGameShare_End();
 		return SwitchGameShareResult::Failed;
@@ -413,28 +401,34 @@ SwitchGameShareResult SwitchGameShare_Begin(std::string& error)
 
 	if (separate)
 	{
-		// First frame goes out before the stream starts.
+		// The guest's own screen: a window on its display.
+		rc = nwindowCreateForDisplay(&s_guestWindow, "player1");
+		Log("open player1 window -> 0x%08x", (unsigned)rc);
+		if (R_SUCCEEDED(rc))
+		{
+			s_guestWindowOpen = true;
+			rc = framebufferCreate(&s_guestFb, &s_guestWindow, kGuestWidth, kGuestHeight, PIXEL_FORMAT_RGBA_8888, 2);
+			if (R_SUCCEEDED(rc))
+				rc = framebufferMakeLinear(&s_guestFb);
+			Log("player1 framebuffer -> 0x%08x", (unsigned)rc);
+			if (R_SUCCEEDED(rc))
+				s_guestFbOpen = true;
+			else if (s_guestFb.has_init)
+				framebufferClose(&s_guestFb);
+		}
+		if (R_FAILED(rc))
+		{
+			WriteErrorLog(DescribeFailure("opening the guest display", rc));
+			SwitchGameShare_End();
+			Log("falling back to a mirrored screen");
+			s_separate.store(false, std::memory_order_release);
+			return SwitchGameShare_Begin(error);
+		}
 		std::vector<uint32_t> first;
 		PaintLobbyFrame(first, "Starting...");
-		rc = gameshareLocalGuestDisplayPresent(s_display, first.data(), kGuestWidth);
-		Log("initial guest frame -> 0x%08x", (unsigned)rc);
-		if (R_FAILED(rc) && R_VALUE(rc) != KERNELRESULT(TimedOut))
-		{
-			error = DescribeFailure("presenting the first guest frame", rc);
-			WriteErrorLog(error);
-			SwitchGameShare_End();
-			return SwitchGameShareResult::Failed;
-		}
+		Log("initial guest frame -> %d", (int)PresentGuestFrame(first.data()));
 	}
 
-	rc = gameshareLocalHostStart(&s_host);
-	if (R_FAILED(rc))
-	{
-		error = DescribeFailure("starting the stream", rc);
-		WriteErrorLog(error);
-		SwitchGameShare_End();
-		return SwitchGameShareResult::Failed;
-	}
 	Log("stream started");
 	s_active.store(true, std::memory_order_release);
 	if (separate)
@@ -461,20 +455,22 @@ void SwitchGameShare_End()
 	Result rc;
 	{
 		std::scoped_lock lock(s_hostMutex);
-		rc = gameshareLocalHostClose(&s_host);
+		rc = gameshareHostClose(&s_host);
 	}
-	if (s_display)
+	if (s_guestFbOpen)
 	{
-		const Result displayRc = gameshareLocalGuestDisplayClose(s_display);
-		Log("close guest display -> 0x%08x", (unsigned)displayRc);
-		if (R_SUCCEEDED(displayRc))
-			s_display = nullptr;
+		framebufferClose(&s_guestFb);
+		s_guestFbOpen = false;
+	}
+	if (s_guestWindowOpen)
+	{
+		nwindowClose(&s_guestWindow);
+		s_guestWindowOpen = false;
+		Log("closed player1 window");
 	}
 	Log("session closed -> 0x%08x", (unsigned)rc);
 	if (R_FAILED(rc))
 		WriteErrorLog(DescribeFailure("closing the session", rc));
-	else
-		s_hostOpen = false;
 	// A failed close keeps the work memory; the process exit releases it.
 	s_hostOpen = false;
 }
@@ -487,9 +483,9 @@ bool SwitchGameShare_GetGuestInput(SwitchGameShareInput& out)
 	bool any = false;
 	for (const HidNpadIdType id : {HidNpadIdType_No1, HidNpadIdType_Handheld, HidNpadIdType_No2})
 	{
-		GameShareLocalPad pad{};
-		const Result rc = gameshareLocalReadGuestPad(&s_host.client, 0, id, &pad);
-		if (R_FAILED(rc) || !pad.connected)
+		StplGuestNpadState pad{};
+		const Result rc = stplGetGuestNpadState(0, id, &pad);
+		if (R_FAILED(rc) || !pad.style || !(pad.state.attributes & HidNpadAttribute_IsConnected))
 			continue;
 		any = true;
 		s_guestPadId.store((int)id, std::memory_order_relaxed);
@@ -504,7 +500,7 @@ bool SwitchGameShare_GetGuestInput(SwitchGameShareInput& out)
 
 	// touch
 	HidTouchScreenState touch{};
-	if (R_SUCCEEDED(gameshareLocalReadGuestTouch(&s_host.client, 0, &touch)) && touch.count > 0)
+	if (R_SUCCEEDED(stplGetGuestTouchScreenState(0, &touch)) && touch.count > 0)
 	{
 		out.touchDown = true;
 		out.touchX = (int32_t)touch.touches[0].x;
@@ -513,23 +509,22 @@ bool SwitchGameShare_GetGuestInput(SwitchGameShareInput& out)
 	}
 
 	// gyro: try the sensor that matches the guest's controller, remember the one that answers
-	struct SensorProbe { HidNpadIdType pad; GameShareLocalSensor sensor; };
+	struct SensorProbe { HidNpadIdType pad; StplSixAxisSensor sensor; };
 	static constexpr SensorProbe kProbes[] = {
-		{HidNpadIdType_Handheld, GameShareLocalSensor_Handheld},
-		{HidNpadIdType_No1, GameShareLocalSensor_FullKey},
-		{HidNpadIdType_No1, GameShareLocalSensor_JoyDualLeft},
-		{HidNpadIdType_No1, GameShareLocalSensor_JoyDualRight},
-		{HidNpadIdType_No1, GameShareLocalSensor_JoyLeft},
-		{HidNpadIdType_No1, GameShareLocalSensor_JoyRight},
-		{HidNpadIdType_No2, GameShareLocalSensor_FullKey},
+		{HidNpadIdType_Handheld, StplSixAxisSensor_Handheld},
+		{HidNpadIdType_No1, StplSixAxisSensor_FullKey},
+		{HidNpadIdType_No1, StplSixAxisSensor_JoyDualLeft},
+		{HidNpadIdType_No1, StplSixAxisSensor_JoyDualRight},
+		{HidNpadIdType_No1, StplSixAxisSensor_JoyLeft},
+		{HidNpadIdType_No1, StplSixAxisSensor_JoyRight},
+		{HidNpadIdType_No2, StplSixAxisSensor_FullKey},
 	};
 	static int s_probe = 0;
 	for (int attempt = 0; attempt < (int)(sizeof(kProbes) / sizeof(kProbes[0])); ++attempt)
 	{
 		const int index = (s_probe + attempt) % (int)(sizeof(kProbes) / sizeof(kProbes[0]));
 		HidSixAxisSensorState state{};
-		const Result rc = gameshareLocalReadGuestSixAxis(&s_host.client, 0, kProbes[index].pad,
-		                                                 kProbes[index].sensor, &state);
+		const Result rc = stplGetGuestSixAxisSensorState(0, kProbes[index].pad, kProbes[index].sensor, &state);
 		if (R_FAILED(rc) || !(state.attributes & HidSixAxisSensorAttribute_IsConnected) ||
 		    state.sampling_number == 0)
 			continue;
@@ -554,12 +549,14 @@ void SwitchGameShare_SetGuestRumble(float amplitude)
 	if (!SwitchGameShare_Active() || styles == 0)
 		return;
 	const u32 style = styles & (~styles + 1);
-	GameShareLocalVibrationHandle handles[2];
+	StplVibrationDeviceHandle handles[2];
+	s32 count = 0;
 	std::scoped_lock lock(s_hostMutex);
-	const s32 count = gameshareLocalMakeVibrationHandles(handles, 2, 0, (HidNpadIdType)s_guestPadId.load(), style);
+	if (R_FAILED(stplGetGuestVibrationDeviceHandles(handles, 2, &count, 0, (HidNpadIdType)s_guestPadId.load(), style)))
+		return;
 	const HidVibrationValue value{amplitude, 160.0f, amplitude, 320.0f};
 	for (s32 i = 0; i < count; ++i)
-		gameshareLocalHostSendVibration(&s_host, handles[i], &value);
+		stplSendGuestVibrationValue(handles[i], &value);
 }
 
 std::string SwitchGameShare_GetGuestNickname()
@@ -598,16 +595,16 @@ bool SwitchGameShare_LobbyUpdate(SwitchGameShareLobbyChoice& choice)
 	if (now - s_lastConnectionPoll > std::chrono::milliseconds(500))
 	{
 		s_lastConnectionPoll = now;
-		GameShareLocalConnection connection{};
+		StplConnectionState connection{};
 		std::scoped_lock hostLock(s_hostMutex);
-		if (R_SUCCEEDED(gameshareLocalHostGetConnection(&s_host, &connection)))
+		if (R_SUCCEEDED(stplGetConnectionState(&connection)))
 		{
 			std::scoped_lock lock(s_lobbyMutex);
 			s_guestFlags = connection.guest_flags;
 			if (connection.guest_flags & 1)
 			{
-				char nickname[33] = {};
-				if (R_SUCCEEDED(gameshareLocalHostGetGuestNickname(&s_host, 0, nickname)) && nickname[0])
+				char nickname[STPL_NICKNAME_LENGTH + 1] = {};
+				if (R_SUCCEEDED(stplGetGuestNickname(0, nickname)) && nickname[0])
 				{
 					std::scoped_lock nameLock(s_nicknameMutex);
 					s_guestNickname = nickname;

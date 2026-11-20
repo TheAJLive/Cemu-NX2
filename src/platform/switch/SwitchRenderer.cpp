@@ -1,3 +1,4 @@
+#include "platform/switch/SwitchGameShare.h"
 #include "Cafe/HW/Latte/Renderer/Renderer.h"
 #if defined(ENABLE_VULKAN)
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanRenderer.h"
@@ -237,7 +238,10 @@ bool SwitchCreateRenderer(int width, int height, std::string_view backend)
 
 #if defined(ENABLE_VULKAN)
 		if (!InitializeGlobalVulkan())
+		{
+			SwitchGameShare_Log("renderer: InitializeGlobalVulkan failed");
 			return false;
+		}
 		g_renderer = std::make_unique<VulkanRenderer>();
 		VulkanRenderer::GetInstance()->InitializeSurface({width, height}, true);
 		return true;
@@ -245,8 +249,18 @@ bool SwitchCreateRenderer(int width, int height, std::string_view backend)
 		return false;
 #endif
 	}
+	catch (const std::exception& error)
+	{
+		SwitchGameShare_Log((std::string("renderer: exception: ") + error.what()).c_str());
+		g_renderer.reset();
+#if defined(ENABLE_OPENGL)
+		s_openGLCanvas.reset();
+#endif
+		return false;
+	}
 	catch (...)
 	{
+		SwitchGameShare_Log("renderer: unknown exception");
 		g_renderer.reset();
 #if defined(ENABLE_OPENGL)
 		s_openGLCanvas.reset();
