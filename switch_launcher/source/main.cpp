@@ -527,7 +527,7 @@ static SettingHelpInfo settingHelpFor(const Opt &option) {
   }
   if(option.type==OT_ACTION && option.label && !strcmp(option.label,"GameShare"))
     return {"GamePad GameShare",
-            "Opens the GameShare settings. Press Minus on the game list to start a GamePad GameShare session that lets another Nintendo Switch or Switch 2 console act as the GamePad."};
+            "Opens the GameShare settings. Press Minus on a game to play it with another Nintendo Switch or Switch 2 console as the GamePad."};
   if(option.type==OT_ACTION && option.label && !strcmp(option.label,"Control mapping"))
     return {"Controller mapping",
             "Opens the press-to-bind screen for every Wii U controller input. Select a control, then press the Switch button or trigger that should activate it."};
@@ -8411,9 +8411,9 @@ static void initializeLauncherDefaults() {
   commitAll();
 }
 
-// Set when the user accepts the Minus-button GamePad GameShare prompt: the core is
-// launched into a GameShare lobby (no game) and owns the session from then on.
-static bool g_gameShareLobbyRequested=false;
+// Set when the user accepts the Minus-button GamePad GameShare prompt: the chosen game is
+// launched with a GameShare session and another console as its GamePad.
+static bool g_gameShareRequested=false;
 
 static bool writeLaunchHandoff(const std::vector<CemuKV> &settings,const std::string &renderer,
                               const std::string &gamePath,uint64_t titleId,bool lsfgPrepared) {
@@ -8424,7 +8424,7 @@ static bool writeLaunchHandoff(const std::vector<CemuKV> &settings,const std::st
      !appendHandoffValue(handoff,"renderer",renderer) ||
      !appendHandoffValue(handoff,"gamepad_layout",cemuKVGet(settings,"GamePadLayout","off")) ||
      !appendHandoffValue(handoff,"gameshare_swap",cemuKVGet(settings,"GameShareSwap","false")) ||
-     !appendHandoffValue(handoff,"gameshare_lobby",g_gameShareLobbyRequested?"1":"0") ||
+     !appendHandoffValue(handoff,"gameshare",g_gameShareRequested?"1":"0") ||
      !appendHandoffValue(handoff,"lsfg_enabled",lsfgPrepared?"true":"false") ||
      !appendHandoffValue(handoff,"lsfg_flow_scale",cemuKVGet(settings,"Wrapper/LSFGFlowScale","0.25")) ||
      !appendHandoffValue(handoff,"lsfg_performance",cemuKVGet(settings,"Wrapper/LSFGPerformance","true")) ||
@@ -8821,12 +8821,14 @@ int main(int argc, char **argv){
     userExit=true; running=false; return true;
   };
 
-  // Minus: offer a GamePad GameShare session. The popup is drawn over the live library grid.
+  // Minus: play the highlighted game with another console as its GamePad. The popup is drawn over the live library grid.
   auto requestGameShare=[&](){
     if(addressSpaceError!=SwitchLaunch::Error::None){ showLaunchError(addressSpaceError); return false; }
+    Game *game=visibleGame(sel);
+    if(!game) return false;
     const std::string title="GamePad GameShare";
-    const std::vector<std::string> body=wrapDialogLines({std::string(LauncherLocalization::Translate(
-      "This will start a GameShare session that will allow you to use another Nintendo Switch or Nintendo Switch 2 console as a GamePad. Would you like to start that now?"))},SW*3/4-64);
+    const std::vector<std::string> body=wrapDialogLines({game->title,std::string(LauncherLocalization::Translate(
+      "Play this game with another Nintendo Switch or Nintendo Switch 2 console as the GamePad?"))},SW*3/4-64);
     const int pw=SW*3/4,ph=std::min(SH-64,230+(int)body.size()*40),px=(SW-pw)/2,py=(SH-ph)/2;
     const int bw=std::min(210,(pw-54)/2),bh=56,bby=py+ph-bh-22,yesx=SW/2-bw-12,nox=SW/2+12;
     g_gridOverlay=[&](){
@@ -8876,9 +8878,8 @@ int main(int argc, char **argv){
     g_gridOverlay=nullptr;
     beginScreenFx();
     if(!accepted) return false;
-    g_gameShareLobbyRequested=true;
-    launchKey.clear(); launchPath.clear(); launchTitleId=0;
-    launch=true; running=false;
+    g_gameShareRequested=true;
+    selectGame(*game);
     return true;
   };
 
@@ -9192,8 +9193,8 @@ int main(int argc, char **argv){
   if(launch && envHasNextLoad()){
     std::vector<CemuKV> eff = buildEffectiveSettings(launchKey);
     const char *configuredRenderer=cemuKVGet(eff,"Wrapper/Renderer","vk");
-    // The GameShare lobby is drawn through the Vulkan renderer.
-    const std::string renderer=g_gameShareLobbyRequested ? "vk" :
+    // GameShare gives the guest its own Vulkan swapchain.
+    const std::string renderer=g_gameShareRequested ? "vk" :
                                !strcmp(configuredRenderer,"gl") ? "gl" :
                                !strcmp(configuredRenderer,"zink") ? "zink" :
                                !strcmp(configuredRenderer,"deko3d") ? "deko3d" : "vk";

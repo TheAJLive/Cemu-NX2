@@ -3,9 +3,9 @@
 // GamePad GameShare: a Switch 2 hosts a local wireless GameShare session (stpl:u, libounce's GameShare host API)
 // and another Nintendo Switch / Switch 2 console acts as the Wii U GamePad.
 //
-// The core owns the session. The launcher only asks for it (Minus on the game list) and starts the
-// core in "lobby" mode; matchmaking, the lobby and the game then all run inside this process, so the
-// session survives from lobby to game.
+// Minus on a game in the launcher starts that game with GameShare. The core creates the renderer, gives the
+// guest its own screen (a Vulkan swapchain on the player1 display), runs matchmaking and then boots the game.
+// The guest gets the GamePad picture and audio (the TV ones when roles are swapped).
 
 #include <cstdint>
 #include <string>
@@ -33,50 +33,34 @@ enum class SwitchGameShareResult
 	Failed,
 };
 
-void SwitchGameShare_Configure(bool lobbyRequested, bool swapRoles);
-bool SwitchGameShare_LobbyRequested();
-// Off: the guest is the GamePad (host sends the GamePad view). On: host sends the TV view.
+constexpr int kSwitchGameShareGuestWidth = 1280;
+constexpr int kSwitchGameShareGuestHeight = 720;
+
+void SwitchGameShare_Configure(bool requested, bool swapRoles);
+// The launcher asked for this game to run with GameShare.
+bool SwitchGameShare_Requested();
+// Off: the guest is the GamePad. On: the guest gets the TV picture and the host shows the GamePad.
 bool SwitchGameShare_SwapRoles();
-// The guest gets its own picture (GamePad, or TV when swapped) and its own audio, the host keeps the
-// other one. If the guest display can't be opened the session falls back to mirroring the host screen.
-// True while a separate-screens session is running.
+
+// Gives the guest its own screen, shows the system matchmaking applet and starts streaming.
+// Call after the renderer exists and before the game starts.
+SwitchGameShareResult SwitchGameShare_Begin(std::string& error);
+// Closes the session. The guest screen stays until SwitchGameShare_ReleaseGuestScreen.
+void SwitchGameShare_End();
+// Closes the guest's window. Call after the renderer (and its swapchain on that window) is gone.
+void SwitchGameShare_ReleaseGuestScreen();
+// True from a successful Begin until End.
+bool SwitchGameShare_Active();
+// True while the guest has its own screen. If that screen can't be set up the session mirrors the host.
 bool SwitchGameShare_SeparateActive();
-// True when the renderer should capture this view (padView = GamePad) for the guest.
-bool SwitchGameShare_WantsGuestFrame(bool padView);
-// One 1280x720 RGBA frame for the guest.
-void SwitchGameShare_SubmitGuestFrame(const uint32_t* rgba);
+
 // GamePad audio (48 kHz stereo s16) for the guest. Returns false if it isn't routed there.
 bool SwitchGameShare_WriteGuestAudio(const int16_t* frames, uint32_t frameCount);
-
-// Opens the session, shows the system matchmaking applet, and starts streaming once a guest joined.
-SwitchGameShareResult SwitchGameShare_Begin(std::string& error);
-// Restarts the session mirroring the host screen. The guest has to join again.
-bool SwitchGameShare_FallBackToMirror(std::string& error);
-// Adds a line to sdmc:/switch/cemu/gameshare-log.txt.
-void SwitchGameShare_Log(const char* text);
-void SwitchGameShare_End();
-// True from a successful Begin until End. While true the TV/GamePad layout is controlled by GameShare.
-bool SwitchGameShare_Active();
-
 // Latest guest controller sample. Returns false when no guest sample is available.
 bool SwitchGameShare_GetGuestInput(SwitchGameShareInput& out);
-
 // Rumble the guest's controller (0..1).
 void SwitchGameShare_SetGuestRumble(float amplitude);
 // Guest nickname, empty until connected.
 std::string SwitchGameShare_GetGuestNickname();
-
-// ---- Lobby (main thread drives it, the render thread draws it) ----
-struct SwitchGameShareLobbyChoice
-{
-	bool quit = false;
-	bool launch = false;
-	uint64_t titleId = 0;
-};
-void SwitchGameShare_LobbyBegin();
-// Polls host and guest input and advances the lobby. Returns true once the lobby has a result.
-bool SwitchGameShare_LobbyUpdate(SwitchGameShareLobbyChoice& choice);
-bool SwitchGameShare_LobbyActive();
-void SwitchGameShare_LobbySetActive(bool active);
-// Called on the render thread between ImguiBegin/ImguiEnd.
-void SwitchGameShare_LobbyRender();
+// Adds a line to sdmc:/switch/cemu/gameshare-log.txt.
+void SwitchGameShare_Log(const char* text);

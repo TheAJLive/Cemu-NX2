@@ -27,7 +27,6 @@ namespace CafeSystem
     void Shutdown();
 
 	PREPARE_STATUS_CODE PrepareForegroundTitle(TitleId titleId);
-	void PrepareLobbyMemorySpace(); // Switch GameShare lobby: map the Wii U memory space before a title is chosen
 	PREPARE_STATUS_CODE PrepareForegroundTitleFromStandaloneRPX(const fs::path& path);
 	void LaunchForegroundTitle();
 	bool IsTitleRunning();

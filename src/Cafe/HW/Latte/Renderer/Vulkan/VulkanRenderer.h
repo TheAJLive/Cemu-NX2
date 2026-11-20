@@ -205,10 +205,11 @@ public:
 	SwapchainInfoVk& GetChainInfo(bool mainWindow) const;
 
 	void StopUsingPadAndWait();
+	// Drops the pad swapchain. Only while nothing renders yet (GameShare setup).
+	void DestroyPadSurface();
 	bool IsPadWindowActive() override;
 
 	void HandleScreenshotRequest(LatteTextureView* texView, bool padView) override;
-	void CaptureForGameShare(LatteTextureView* texView, bool padView) override;
 
 	void QueryMemoryInfo();
 	void QueryAvailableFormats();
@@ -1034,25 +1035,6 @@ private:
 
 		vkTexture->SetImageLayout(subresourceRange, newLayout);
 	}
-
-	// GameShare separate screens: the view for the guest is blitted to 1280x720 and read back without stalling.
-	struct GameShareSlot
-	{
-		VkBuffer buffer{};
-		VkDeviceMemory memory{};
-		void* mapped{};
-		uint64 commandBufferId{};
-	};
-	std::array<GameShareSlot, 3> m_gameShareSlots{};
-	size_t m_gameShareHead = 0;
-	size_t m_gameShareCount = 0;
-	VkImage m_gameShareImage{};
-	VkDeviceMemory m_gameShareImageMemory{};
-	VkFormat m_gameShareImageFormat = VK_FORMAT_UNDEFINED;
-	uint64 m_gameShareLastCapture = 0;
-	bool m_gameShareDisabled = false;
-	bool CreateGameShareResources(VkFormat blitFormat);
-	void DrainGameShareCaptures();
 
 public:
 	bool GetDisableMultithreadedCompilation() const { return m_featureControl.disableMultithreadedCompilation; }

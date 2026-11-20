@@ -833,29 +833,15 @@ namespace CafeSystem
 		return PREPARE_STATUS_CODE::SUCCESS;
 	}
 
-    // The GameShare lobby needs the Wii U memory space (and the renderer that imports it) before
-    // any title has been chosen, so it maps it early; the title then reuses that mapping.
-    static bool s_memorySpaceMappedEarly = false;
-
-    void PrepareLobbyMemorySpace()
-    {
-        if (s_memorySpaceMappedEarly)
-            return;
-        memory_mapForCurrentTitle();
-        s_memorySpaceMappedEarly = true;
-    }
-
     void SetupMemorySpace()
     {
-        if (!s_memorySpaceMappedEarly)
-            memory_mapForCurrentTitle();
+        memory_mapForCurrentTitle();
         LoadSharedData();
     }
 
     void DestroyMemorySpace()
     {
         memory_unmapForCurrentTitle();
-        s_memorySpaceMappedEarly = false;
     }
 
 	PREPARE_STATUS_CODE PrepareForegroundTitle(TitleId titleId)

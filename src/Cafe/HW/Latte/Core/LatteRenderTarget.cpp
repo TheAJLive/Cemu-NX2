@@ -19,8 +19,8 @@
 #include "Cafe/OS/libs/swkbd/swkbd.h"
 #if defined(__SWITCH__)
 #include "platform/switch/SwitchPlatform.h"
-#include "platform/switch/SwitchGameShare.h"
 #include "platform/switch/SwitchSaltyNX.h"
+#include "platform/switch/SwitchGameShare.h"
 #endif
 
 uint32 prevScissorX = 0;
@@ -1109,10 +1109,15 @@ void LatteRenderTarget_itHLECopyColorBufferToScanBuffer(MPTR colorBufferPtr, uin
 	}
 	if (SwitchGameShare_SeparateActive())
 	{
-		if ((renderTarget & RENDER_TARGET_DRC) && SwitchGameShare_WantsGuestFrame(true))
-			g_renderer->CaptureForGameShare(texView, true);
-		if ((renderTarget & RENDER_TARGET_TV) && SwitchGameShare_WantsGuestFrame(false))
-			g_renderer->CaptureForGameShare(texView, false);
+		// The guest's console is the second screen: GamePad there, TV here (the other way round when swapped).
+		const bool swap = SwitchGameShare_SwapRoles();
+		const uint32 guestTarget = swap ? RENDER_TARGET_TV : RENDER_TARGET_DRC;
+		const uint32 hostTarget = swap ? RENDER_TARGET_DRC : RENDER_TARGET_TV;
+		if (renderTarget & guestTarget)
+			LatteRenderTarget_copyToBackbuffer(texView, true);
+		if (renderTarget & hostTarget)
+			LatteRenderTarget_copyToBackbuffer(texView, false);
+		return;
 	}
 	if (SwitchPlatform_IsGamePadOnly())
 	{
