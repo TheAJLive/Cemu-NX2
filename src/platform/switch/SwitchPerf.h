@@ -13,7 +13,8 @@ enum class SwitchPerfCounter
 	SnapshotCompared,   // bytes memcmp'd by the guest buffer cache
 	SnapshotCopied,     // bytes copied into it
 	SnapshotSlowAlloc,  // allocations that had to evict entries
-	SnapshotStall,      // draws that waited for the GPU because the cache was full
+	SnapshotPartialWait,// draws that waited for older command buffers because the cache was full
+	SnapshotStall,      // draws that drained the GPU because the cache was still full
 	ReadbackWait,       // draws that waited for a texture readback
 	GpuWaitMicros,      // time the GPU thread spent waiting for command buffers
 	Count,
@@ -25,6 +26,9 @@ bool SwitchPerf_Enabled();
 void SwitchPerf_Add(SwitchPerfCounter counter, uint64_t value = 1);
 // Call on the GPU thread once per present; writes the log line when a second has passed.
 void SwitchPerf_OnPresent();
+// Strict GPU sync: every query and texture readback makes the next draw wait for the GPU, as before.
+void SwitchPerf_SetStrictSync(bool strict);
+bool SwitchPerf_StrictSync();
 #else
 inline void SwitchPerf_Add(SwitchPerfCounter, uint64_t = 1) {}
 #endif

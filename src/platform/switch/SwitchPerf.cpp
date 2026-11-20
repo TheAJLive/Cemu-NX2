@@ -15,6 +15,7 @@ namespace
 {
 	constexpr size_t kCount = static_cast<size_t>(SwitchPerfCounter::Count);
 	std::atomic_bool s_enabled{false};
+	std::atomic_bool s_strictSync{false};
 	std::array<std::atomic_uint64_t, kCount> s_counters{};
 
 	uint64_t s_windowStart = 0;
@@ -39,6 +40,16 @@ void SwitchPerf_SetEnabled(bool enabled)
 bool SwitchPerf_Enabled()
 {
 	return s_enabled.load(std::memory_order_relaxed);
+}
+
+void SwitchPerf_SetStrictSync(bool strict)
+{
+	s_strictSync.store(strict, std::memory_order_release);
+}
+
+bool SwitchPerf_StrictSync()
+{
+	return s_strictSync.load(std::memory_order_relaxed);
 }
 
 void SwitchPerf_Add(SwitchPerfCounter counter, uint64_t value)
@@ -82,18 +93,19 @@ void SwitchPerf_OnPresent()
 		if (!s_headerWritten)
 		{
 			std::fprintf(file, "# per second: game fps, presented fps, draws, gpu thread busy %%, gpu wait ms, "
-				"snapshot compared MB, copied MB, slow allocs, cache-full stalls, readback waits, new pipelines\n");
+				"snapshot compared MB, copied MB, slow allocs, cache-full partial waits, cache-full drains, readback waits, new pipelines, gpu sync\n");
 			s_headerWritten = true;
 		}
 		std::fprintf(file, "game %.1f  present %.1f  draws %.0f  gpu-thread %.0f%%  gpu-wait %.1fms  cmp %.1fMB  copy %.1fMB  "
-			"slow-alloc %.0f  full-stall %.0f  readback-wait %.0f  pipelines %.0f\n",
+			"slow-alloc %.0f  partial-wait %.0f  full-drain %.0f  readback-wait %.0f  pipelines %.0f  sync %s\n",
 			perSecond(SwitchPerfCounter::GuestFrames), perSecond(SwitchPerfCounter::Presents),
 			perSecond(SwitchPerfCounter::Draws), gpuThreadBusy,
 			perSecond(SwitchPerfCounter::GpuWaitMicros) / 1000.0,
 			perSecond(SwitchPerfCounter::SnapshotCompared) / (1024.0 * 1024.0),
 			perSecond(SwitchPerfCounter::SnapshotCopied) / (1024.0 * 1024.0),
-			perSecond(SwitchPerfCounter::SnapshotSlowAlloc), perSecond(SwitchPerfCounter::SnapshotStall),
-			perSecond(SwitchPerfCounter::ReadbackWait), (pipelines - s_pipelinesStart) / seconds);
+			perSecond(SwitchPerfCounter::SnapshotSlowAlloc), perSecond(SwitchPerfCounter::SnapshotPartialWait),
+			perSecond(SwitchPerfCounter::SnapshotStall), perSecond(SwitchPerfCounter::ReadbackWait),
+			(pipelines - s_pipelinesStart) / seconds, SwitchPerf_StrictSync() ? "strict" : "fast");
 		std::fclose(file);
 	}
 	s_windowStart = now;

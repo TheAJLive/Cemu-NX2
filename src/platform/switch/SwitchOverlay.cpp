@@ -65,7 +65,7 @@ constexpr std::uint64_t kAllowedButtons = HidNpadButton_A | HidNpadButton_B | Hi
 	HidNpadButton_Plus | HidNpadButton_Minus | HidNpadButton_StickL | HidNpadButton_StickR |
 	HidNpadButton_Up | HidNpadButton_Down | HidNpadButton_Left | HidNpadButton_Right;
 constexpr size_t kHotkeyCount = static_cast<size_t>(HotkeyAction::Count);
-constexpr int kMainMenuItems = 13;
+constexpr int kMainMenuItems = 14;
 constexpr float kMainRowHeight = 38.0f;
 constexpr int kAccessoryMenuItems = 4;
 constexpr int kPositionCount = 7;
@@ -468,14 +468,16 @@ void RenderMainPage()
 	SelectableRow(row, 6, kMainRowHeight);
 	std::snprintf(row, sizeof(row), "Performance log     <  %s  >", SwitchPerf_Enabled() ? "On" : "Off");
 	SelectableRow(row, 7, kMainRowHeight);
-	SelectableRow("Runtime hotkeys                              >", 8, kMainRowHeight);
-	SelectableRow("Virtual USB accessories                      >", 9, kMainRowHeight);
+	std::snprintf(row, sizeof(row), "GPU sync            <  %s  >", SwitchPerf_StrictSync() ? "Strict" : "Fast");
+	SelectableRow(row, 8, kMainRowHeight);
+	SelectableRow("Runtime hotkeys                              >", 9, kMainRowHeight);
+	SelectableRow("Virtual USB accessories                      >", 10, kMainRowHeight);
 	char amiiboStatus[96];
 	SwitchAmiibo_GetStatus(amiiboStatus, sizeof(amiiboStatus));
 	std::snprintf(row, sizeof(row), "Scan Amiibo         %s", amiiboStatus);
-	SelectableRow(row, 10, kMainRowHeight);
-	SelectableRow("Exit to launcher", 11, kMainRowHeight);
-	SelectableRow("Close quick menu", 12, kMainRowHeight);
+	SelectableRow(row, 11, kMainRowHeight);
+	SelectableRow("Exit to launcher", 12, kMainRowHeight);
+	SelectableRow("Close quick menu", 13, kMainRowHeight);
 	ImGui::Separator();
 	CenteredText("D-Pad  Navigate     A  Select     B  Close");
 }
@@ -678,18 +680,20 @@ void SwitchOverlay_UpdateInput(std::uint64_t down, std::uint64_t held)
 			s_shaderToggleRequests.fetch_add(1, std::memory_order_release);
 		else if (selection == 7 && (previous || next || confirm))
 			SwitchPerf_SetEnabled(!SwitchPerf_Enabled());
-		else if (selection == 8 && confirm)
-			SetPage(Page::Hotkeys);
+		else if (selection == 8 && (previous || next || confirm))
+			SwitchPerf_SetStrictSync(!SwitchPerf_StrictSync());
 		else if (selection == 9 && confirm)
-			SetPage(Page::Accessories);
+			SetPage(Page::Hotkeys);
 		else if (selection == 10 && confirm)
-			s_amiiboScanRequests.fetch_add(1, std::memory_order_release);
+			SetPage(Page::Accessories);
 		else if (selection == 11 && confirm)
+			s_amiiboScanRequests.fetch_add(1, std::memory_order_release);
+		else if (selection == 12 && confirm)
 		{
 			s_exitRequests.fetch_add(1, std::memory_order_release);
 			CloseMenu();
 		}
-		else if (selection == 12 && confirm)
+		else if (selection == 13 && confirm)
 			CloseMenu();
 		return;
 	}
