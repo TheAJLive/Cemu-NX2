@@ -5,6 +5,9 @@
 #include "Cafe/HW/Latte/Renderer/Vulkan/VulkanPipelineCompiler.h"
 
 #include "Cafe/HW/Latte/Core/LattePerformanceMonitor.h"
+#if defined(__SWITCH__)
+#include "platform/switch/SwitchPerf.h"
+#endif
 #include "Cafe/HW/Latte/Core/LatteShader.h"
 #include "Cafe/HW/Latte/Core/FetchShader.h"
 #include "Cafe/HW/Latte/Core/LatteIndices.h"
@@ -1957,6 +1960,7 @@ bool VulkanRenderer::PrepareGuestDraw(uint32 baseVertex, uint32 baseInstance, ui
 	bool submitted = false;
 	if (m_guestReadbackFence && !HasCommandBufferFinished(*m_guestReadbackFence))
 	{
+		SwitchPerf_Add(SwitchPerfCounter::ReadbackWait);
 		WaitCommandBufferFinished(*m_guestReadbackFence);
 		submitted = true;
 	}
@@ -1972,6 +1976,7 @@ bool VulkanRenderer::PrepareGuestDraw(uint32 baseVertex, uint32 baseInstance, ui
 			return submitted;
 		if (fallback)
 			throw std::bad_alloc();
+		SwitchPerf_Add(SwitchPerfCounter::SnapshotStall);
 		WaitCommandBufferFinished(GetCurrentCommandBufferId());
 		submitted = true;
 	}
@@ -1981,6 +1986,8 @@ bool VulkanRenderer::PrepareGuestDraw(uint32 baseVertex, uint32 baseInstance, ui
 bool VulkanRenderer::PrepareGuestBuffers(uint32 maxVertex, uint32 baseInstance, uint32 instanceCount, bool fallback)
 {
 	const uint64 draw = ++m_guestBufferDraw;
+	if (!fallback)
+		SwitchPerf_Add(SwitchPerfCounter::Draws);
 	LatteDecompilerShader* shaders[]{LatteSHRC_GetActiveVertexShader(), LatteSHRC_GetActivePixelShader(), LatteSHRC_GetActiveGeometryShader()};
 	constexpr uint32 registerBases[]{mmSQ_VTX_UNIFORM_BLOCK_START, mmSQ_PS_UNIFORM_BLOCK_START, mmSQ_GS_UNIFORM_BLOCK_START};
 	for (uint32 stage = 0; stage < 3; ++stage)

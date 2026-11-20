@@ -1,5 +1,6 @@
 #include "VKRGuestBufferCache.h"
 #include "VulkanRenderer.h"
+#include "platform/switch/SwitchPerf.h"
 
 VKRGuestBufferCache::VKRGuestBufferCache(VulkanRenderer& renderer, uint32 size, uint32 alignment)
 	: m_renderer(renderer), m_heap(nullptr, size), m_size(size),
@@ -98,6 +99,7 @@ bool VKRGuestBufferCache::Allocate(uint32 size, uint64 draw, uint32& offset)
 	Reclaim();
 	if (m_heap.allocOffset(size, m_alignment, offset))
 		return true;
+	SwitchPerf_Add(SwitchPerfCounter::SnapshotSlowAlloc);
 	for (bool pending : {false, true})
 	{
 		for (auto it = m_entries.begin(); it != m_entries.end();)
@@ -132,6 +134,7 @@ std::optional<uint32> VKRGuestBufferCache::Get(uint32 address, std::span<const u
 	bool unchanged = entry.offset != ~0u && entry.size >= size;
 	if (unchanged && (entry.epoch != epoch || entry.generation != generation))
 	{
+		SwitchPerf_Add(SwitchPerfCounter::SnapshotCompared, size);
 		unchanged = std::memcmp(memory + entry.offset, bytes.data(), size) == 0;
 		if (unchanged)
 			entry.size = size;
@@ -149,6 +152,7 @@ std::optional<uint32> VKRGuestBufferCache::Get(uint32 address, std::span<const u
 			entry.offset = offset;
 			entry.capacity = capacity;
 		}
+		SwitchPerf_Add(SwitchPerfCounter::SnapshotCopied, size);
 		std::memcpy(memory + entry.offset, bytes.data(), size);
 		std::memset(memory + entry.offset + size, 0, capacity - size);
 		VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};

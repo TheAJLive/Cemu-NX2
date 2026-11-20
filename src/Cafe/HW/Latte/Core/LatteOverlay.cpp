@@ -32,6 +32,7 @@ struct OverlayStats
 	std::vector<ProcessorTime> processor_times;
 
 	double fps{};
+	double renderedFps{};
 	uint32 draw_calls_per_frame{};
 	uint32 fast_draw_calls_per_frame{};
 	float cpu_usage{}; // cemu cpu usage in %
@@ -93,7 +94,11 @@ void LatteOverlay_renderOverlay(ImVec2& position, ImVec2& pivot, sint32 directio
 		if (ImGui::Begin("Stats overlay", nullptr, kPopupFlags))
 		{
 			if (config.overlay.fps)
+#if defined(__SWITCH__)
+				ImGui::Text("FPS: %.2lf (new frames: %.0lf)", g_state.fps, g_state.renderedFps);
+#else
 				ImGui::Text("FPS: %.2lf", g_state.fps);
+#endif
 
 			if (config.overlay.drawcalls)
 				ImGui::Text("Draws/f: %d (fast: %d)", g_state.draw_calls_per_frame, g_state.fast_draw_calls_per_frame);
@@ -614,6 +619,11 @@ static void UpdateStats_CpuPerCore()
 		g_state.cpu_per_core[i] = cpu * 100;
 		g_state.processor_times[i] = now[i];
 	}
+}
+
+void LatteOverlay_setRenderedFps(double fps)
+{
+	g_state.renderedFps = fps;
 }
 
 void LatteOverlay_updateStats(double fps, sint32 drawcalls, sint32 fastDrawcalls)

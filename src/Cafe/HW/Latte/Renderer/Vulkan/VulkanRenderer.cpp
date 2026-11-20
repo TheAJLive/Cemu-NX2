@@ -41,6 +41,7 @@
 #include "platform/switch/SwitchPlatform.h"
 #include "platform/switch/SwitchSwkbd.h"
 #include "platform/switch/SwitchGameShare.h"
+#include "platform/switch/SwitchPerf.h"
 extern "C" {
 #include <switch/services/applet.h>
 }
@@ -2475,8 +2476,17 @@ void VulkanRenderer::WaitCommandBufferFinished(uint64 commandBufferId)
 {
 	if (commandBufferId == m_numSubmittedCmdBuffers)
 		SubmitCommandBuffer();
+#if defined(__SWITCH__)
+	if (HasCommandBufferFinished(commandBufferId))
+		return;
+	const auto waitStart = std::chrono::steady_clock::now();
+#endif
 	while (HasCommandBufferFinished(commandBufferId) == false)
 		WaitForNextFinishedCommandBuffer();
+#if defined(__SWITCH__)
+	SwitchPerf_Add(SwitchPerfCounter::GpuWaitMicros,
+		std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - waitStart).count());
+#endif
 }
 
 void VulkanRenderer::PipelineCacheLoadingFinished(bool saveCache)
@@ -3512,6 +3522,10 @@ void VulkanRenderer::SwapBuffers(bool swapTV, bool swapDRC)
 		SwapBuffer(false);
 	if(swapTV || (gamePadOutput && swapDRC))
 		VulkanBenchmarkPrintResults();
+#if defined(__SWITCH__)
+	if (swapMain)
+		SwitchPerf_OnPresent();
+#endif
 #if defined(__SWITCH__)
 	if (m_guestBuffers)
 	{

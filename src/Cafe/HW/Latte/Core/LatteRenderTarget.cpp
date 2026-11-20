@@ -21,6 +21,7 @@
 #include "platform/switch/SwitchPlatform.h"
 #include "platform/switch/SwitchSaltyNX.h"
 #include "platform/switch/SwitchGameShare.h"
+#include "platform/switch/SwitchPerf.h"
 #endif
 
 uint32 prevScissorX = 0;
@@ -734,6 +735,11 @@ void LatteRenderTarget_itHLESwapScanBuffer()
 	FrameBenchmarkHelper::FrameEnd();
 	LatteGPUState.frameCounter++;
 #if defined(__SWITCH__)
+	if (s_scanCopiedSinceSwap[0] || s_scanCopiedSinceSwap[1])
+	{
+		performanceMonitor.cycle[performanceMonitor.cycleIndex].renderedFrameCounter++;
+		SwitchPerf_Add(SwitchPerfCounter::GuestFrames);
+	}
 	// A swap with no copy shows the previous image, not a cleared swapchain image.
 	for (size_t i = 0; i < 2; i++)
 	{
