@@ -11,6 +11,7 @@
 #include "platform/switch/SwitchPlatform.h"
 #include "platform/switch/SwitchSwkbd.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <string_view>
@@ -210,6 +211,17 @@ void ConfigureMesaBackend(std::string_view backend)
 
 bool SwitchCreateRenderer(int width, int height, std::string_view backend)
 {
+	// The driver reports why a device was lost on stderr, which goes nowhere on the console.
+	// The last run's log moves to driver-log-old.txt, so relaunching after a crash keeps it.
+	static bool s_driverLogOpen = false;
+	if (!s_driverLogOpen)
+	{
+		std::remove("sdmc:/switch/cemu/driver-log-old.txt");
+		std::rename("sdmc:/switch/cemu/driver-log.txt", "sdmc:/switch/cemu/driver-log-old.txt");
+		if (freopen("sdmc:/switch/cemu/driver-log.txt", "w", stderr))
+			setvbuf(stderr, nullptr, _IOLBF, 1024);
+		s_driverLogOpen = true;
+	}
 	ConfigureMesaBackend(backend);
 	try
 	{
