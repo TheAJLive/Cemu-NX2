@@ -35,7 +35,27 @@ Pre-2.0 releases can be found on Cemu's [changelog page](https://cemu.info/chang
 This fork adds a homebrew build for the Switch 2. It runs under kaiHEN and is
 built with ounce-devkit. See [dist/switch2/README.md](/dist/switch2/README.md).
 
-**WARNING FOR GAMESHARE GAMEPAD:** You could be banned if you use GameShare in a game that does not support it. Its unlikely, but possible. For a list of GameShare supported games, see this list [**here.**](https://nintendoeverything.com/list-of-all-nintendo-switch-2-games-that-support-gameshare/)
+**WARNING FOR GAMESHARE GAMEPAD:** You could be banned if you use GameShare in a game that does not support it. Its unlikely, but possible. For a list of GameShare supported games, see below for a list of titles supported
+
+**List of compatible physical titles:**
+- Donkey Kong Bananza
+- Hyrule Warriors: Age of Imprisonment
+- Super Mario Party™ Jamboree – Nintendo Switch™ 2 Edition + Jamboree TV (a physical copy of Super Mario Party for Switch 1 can be used if you already own and have the upgrade pack downloaded)
+
+**List of compatible digital titles (switch 2 upgrade packs can also be used with physical sw1 carts):**
+- Chillin' by the Fire
+- Fast Fusion
+- Lynked: Banner of the Spark
+- Mortal Kombat Legacy Kollection
+- Overcooked 2 [A Physical Version Is Available But The Upgrade Pack Is Digital Only]
+- Plants vs. Zombies: Replanted
+- Puyo Puyo Tetris 2S [Its Available Physically But Because Its A GKC Its The Same Process As Digital]
+- Split Fiction
+- Stardew Valley [A Physical Release Is Announced For 2027 But Its Likely To Have A Higher Firmware On It]
+- Storm Lancers
+- Suika Game Planet
+- Survival Kids
+
 
 ## Build Instructions
 
