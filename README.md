@@ -35,6 +35,8 @@ Pre-2.0 releases can be found on Cemu's [changelog page](https://cemu.info/chang
 This fork adds a homebrew build for the Switch 2. It runs under kaiHEN and is
 built with ounce-devkit. See [dist/switch2/README.md](/dist/switch2/README.md).
 
+**WARNING FOR GAMESHARE GAMEPAD:** You could be banned if you use GameShare in a game that does not support it. Its unlikely, but possible. For a list of GameShare supported games, see this list [**here.**](https://nintendoeverything.com/list-of-all-nintendo-switch-2-games-that-support-gameshare/)
+
 ## Build Instructions
 
 To compile Cemu yourself on Windows, Linux or macOS, view [BUILD.md](/BUILD.md).
