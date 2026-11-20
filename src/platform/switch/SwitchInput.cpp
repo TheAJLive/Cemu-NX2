@@ -190,7 +190,8 @@ class SwitchGamepadController : public ControllerBase
 			const glm::vec2 previousTouchPos = m_touchPos;
 			HidTouchScreenState ts{};
 			bool haveTouch = hidGetTouchScreenStates(&ts, 1) && ts.count > 0;
-			const bool guestTouch = haveGuest && guest.touchDown;
+			// With roles swapped the guest shows the TV, which has no touch screen.
+			const bool guestTouch = haveGuest && guest.touchDown && !SwitchGameShare_SwapRoles();
 			if (guestTouch)
 			{
 				// The guest's screen shows the streamed GamePad view full-screen: no layout remap.
@@ -528,7 +529,6 @@ class SwitchGamepadController : public ControllerBase
 	void sendVibration(float amp)
 	{
 		std::scoped_lock lock(m_padMutex);
-		// guest rumbles too
 		SwitchGameShare_SetGuestRumble(amp);
 		initializeVibration();
 		const u32 style = padGetStyleSet(&m_pad);

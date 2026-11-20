@@ -170,12 +170,10 @@ std::string cemu_normalizeTitlePath(const std::string &path) {
   return normalized;
 }
 
-std::vector<CemuTitle> cemu_scanMlcTitles(const std::string &mlcRoot) {
-  std::vector<CemuTitle> out;
-  std::string baseDir = mlcRoot + "/usr/title/00050000";
+static void scanMlcTitleDir(const std::string &baseDir, uint32_t high, std::vector<CemuTitle> &out) {
   DIR *d = opendir(baseDir.c_str());
   if (!d)
-    return out;
+    return;
   struct dirent *e;
   while ((e = readdir(d))) {
     if (e->d_name[0] == '.')
@@ -190,8 +188,11 @@ std::vector<CemuTitle> cemu_scanMlcTitles(const std::string &mlcRoot) {
     if (stat(dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode) ||
         stat(meta.c_str(), &st) != 0 || !S_ISREG(st.st_mode))
       continue;
+    // A system app also needs its code to boot.
+    if (high != 0x00050000 && (stat((dir + "/code/app.xml").c_str(), &st) != 0 || !S_ISREG(st.st_mode)))
+      continue;
     CemuTitle t;
-    t.titleId = (0x00050000ULL << 32) | lowTitleId;
+    t.titleId = ((uint64_t)high << 32) | lowTitleId;
     uint64_t metadataTitleId = 0;
     if (!readMetadata(meta, metadataTitleId, t.name) || metadataTitleId != t.titleId)
       continue;
@@ -201,6 +202,13 @@ std::vector<CemuTitle> cemu_scanMlcTitles(const std::string &mlcRoot) {
     out.push_back(std::move(t));
   }
   closedir(d);
+}
+
+std::vector<CemuTitle> cemu_scanMlcTitles(const std::string &mlcRoot) {
+  std::vector<CemuTitle> out;
+  scanMlcTitleDir(mlcRoot + "/usr/title/00050000", 0x00050000, out);
+  // System apps such as Mii Maker.
+  scanMlcTitleDir(mlcRoot + "/sys/title/00050010", 0x00050010, out);
   return out;
 }
 

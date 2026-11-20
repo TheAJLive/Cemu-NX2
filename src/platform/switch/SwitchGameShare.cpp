@@ -31,7 +31,6 @@ std::atomic_bool s_separate{false};
 std::mutex s_hostMutex;
 FILE* s_log = nullptr;
 std::mutex s_logMutex;
-// pad the guest is using, for rumble
 std::atomic<int> s_guestPadId{(int)HidNpadIdType_No1};
 std::atomic<u32> s_guestPadStyle{0};
 std::mutex s_nicknameMutex;
@@ -293,8 +292,20 @@ bool SwitchGameShare_GetGuestInput(SwitchGameShareInput& out)
 	}
 
 	HidTouchScreenState touch{};
-	if (R_SUCCEEDED(stplGetGuestTouchScreenState(0, &touch)) && touch.count > 0)
+	const Result touchRc = stplGetGuestTouchScreenState(0, &touch);
+	static bool s_loggedTouchRead = false, s_loggedTouch = false;
+	if (!s_loggedTouchRead)
 	{
+		s_loggedTouchRead = true;
+		Log("first guest touch read -> 0x%08x (sample %llu)", (unsigned)touchRc, (unsigned long long)touch.sampling_number);
+	}
+	if (R_SUCCEEDED(touchRc) && touch.count > 0)
+	{
+		if (!s_loggedTouch)
+		{
+			s_loggedTouch = true;
+			Log("first guest touch at %u,%u", (unsigned)touch.touches[0].x, (unsigned)touch.touches[0].y);
+		}
 		out.touchDown = true;
 		out.touchX = (int32_t)touch.touches[0].x;
 		out.touchY = (int32_t)touch.touches[0].y;

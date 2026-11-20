@@ -346,7 +346,7 @@ int cemu_installTitle(const std::string &srcFolder, const std::string &mlcRoot,
   }
   const uint32_t high = static_cast<uint32_t>(tid >> 32);
   const uint32_t low = static_cast<uint32_t>(tid);
-  const bool systemTitle = high == 0x00050010 || high == 0x00050030;
+  const bool systemTitle = high == 0x00050010 || high == 0x00050030 || high == 0x0005001b;
 
   char highName[9];
   char lowName[9];

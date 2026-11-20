@@ -611,9 +611,14 @@ namespace WindowSystem
 			(baseTitleId & ~(0xFFULL << 32)) | (0x0EULL << 32),
 			(baseTitleId & ~(0xFFULL << 32)) | (0x0CULL << 32),
 		};
-		const fs::path titleRoot = ActiveSettings::GetMlcPath() / "usr/title";
+		// System apps (Mii Maker and the like) are installed under sys/title.
+		const uint32 high = static_cast<uint32>(baseTitleId >> 32);
+		const bool systemTitle = high == 0x00050010 || high == 0x00050030;
+		const fs::path titleRoot = ActiveSettings::GetMlcPath() / (systemTitle ? "sys/title" : "usr/title");
 		for (TitleId candidate : candidates)
 		{
+			if (systemTitle && candidate != baseTitleId)
+				continue;
 			const fs::path path = titleRoot /
 				fmt::format("{:08x}", static_cast<uint32>(candidate >> 32)) /
 				fmt::format("{:08x}", static_cast<uint32>(low));

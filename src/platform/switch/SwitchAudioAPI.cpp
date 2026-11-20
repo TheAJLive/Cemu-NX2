@@ -605,10 +605,16 @@ SwitchAudioAPI::~SwitchAudioAPI()
 		s_mixer->Remove(&m_impl->endpoint);
 }
 
+// The guest hears the GamePad, or the TV when roles are swapped.
+static IAudioAPI::AudioType GuestAudioType()
+{
+	return SwitchGameShare_SwapRoles() ? IAudioAPI::AudioType::TV : IAudioAPI::AudioType::Gamepad;
+}
+
 bool SwitchAudioAPI::NeedAdditionalBlocks() const
 {
-	// GamePad audio that goes to the guest follows the TV audio clock, it never asks for more.
-	if (m_impl->endpoint.type == AudioType::Gamepad && SwitchGameShare_SeparateActive())
+	// Audio that goes to the guest follows the host's audio clock, it never asks for more.
+	if (m_impl->endpoint.type == GuestAudioType() && SwitchGameShare_SeparateActive())
 		return false;
 	return s_mixer && s_mixer->NeedsBlocks(m_impl->endpoint, GetAudioDelay());
 }
@@ -616,7 +622,7 @@ bool SwitchAudioAPI::NeedAdditionalBlocks() const
 bool SwitchAudioAPI::FeedBlock(sint16* data)
 {
 	const auto& endpoint = m_impl->endpoint;
-	if (endpoint.type == AudioType::Gamepad && endpoint.samplerate == kOutputRate && endpoint.channels == kOutputChannels &&
+	if (endpoint.type == GuestAudioType() && endpoint.samplerate == kOutputRate && endpoint.channels == kOutputChannels &&
 	    SwitchGameShare_SeparateActive())
 	{
 		thread_local std::vector<sint16> scaled;
