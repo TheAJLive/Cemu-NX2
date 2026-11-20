@@ -4195,7 +4195,18 @@ LatteTextureReadbackInfo* VulkanRenderer::texture_createReadback(LatteTextureVie
 		return nullptr;
 	}
 
-	const uint32 uploadSize = linearImageSize;
+	// The copy writes texels of the texture's own format, which can be wider than the view's format.
+	LatteTexture* baseTexture = textureView->baseTexture;
+	const uint64 copySize = (uint64)baseTexture->GetMipWidth(textureView->firstMip) *
+		baseTexture->GetMipHeight(textureView->firstMip) * (Latte::GetFormatBits(baseTexture->format) / 8);
+	const uint64 reserveSize = std::max<uint64>(linearImageSize, copySize);
+	if (reserveSize + 256 > TEXTURE_READBACK_SIZE)
+	{
+		cemuLog_logOnce(LogType::Force, "Texture readback of {} bytes does not fit the readback buffer, skipped", reserveSize);
+		delete result;
+		return nullptr;
+	}
+	const uint32 uploadSize = (uint32)reserveSize;
 	const uint32 uploadAlignment = 256; // todo - use Vk optimalBufferCopyOffsetAlignment
 	m_textureReadbackBufferWriteIndex = (m_textureReadbackBufferWriteIndex + uploadAlignment - 1) & ~(uploadAlignment - 1);
 
