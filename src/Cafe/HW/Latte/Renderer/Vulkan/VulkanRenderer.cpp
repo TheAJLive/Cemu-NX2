@@ -41,6 +41,7 @@
 #include "platform/switch/SwitchPlatform.h"
 #include "platform/switch/SwitchSwkbd.h"
 #include "platform/switch/SwitchGameShare.h"
+#include "platform/switch/SwitchPerf.h"
 extern "C" {
 #include <switch/services/applet.h>
 }
@@ -2475,8 +2476,17 @@ void VulkanRenderer::WaitCommandBufferFinished(uint64 commandBufferId)
 {
 	if (commandBufferId == m_numSubmittedCmdBuffers)
 		SubmitCommandBuffer();
+#if defined(__SWITCH__)
+	if (HasCommandBufferFinished(commandBufferId))
+		return;
+	const auto waitStart = std::chrono::steady_clock::now();
+#endif
 	while (HasCommandBufferFinished(commandBufferId) == false)
 		WaitForNextFinishedCommandBuffer();
+#if defined(__SWITCH__)
+	SwitchPerf_Add(SwitchPerfCounter::GpuWaitMicros,
+		std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - waitStart).count());
+#endif
 }
 
 void VulkanRenderer::PipelineCacheLoadingFinished(bool saveCache)
@@ -3467,10 +3477,14 @@ void VulkanRenderer::QueueGuestCompletion(std::function<void()> completion)
 	RequestSubmitOnIdle();
 }
 
-void VulkanRenderer::NotifyGuestReadback()
+void VulkanRenderer::NotifyGuestReadback(bool writesGuestMemory, bool changesSnapshots)
 {
+	const bool strict = SwitchPerf_StrictSync();
 	m_guestReadbackFence = GetCurrentCommandBufferId();
-	++m_guestBufferEpoch;
+	if (writesGuestMemory || strict)
+		m_guestWriteFence = m_guestReadbackFence;
+	if (changesSnapshots || strict)
+		++m_guestBufferEpoch;
 }
 
 void VulkanRenderer::bufferCache_invalidate(uint32 address, uint32 size)
@@ -3512,6 +3526,10 @@ void VulkanRenderer::SwapBuffers(bool swapTV, bool swapDRC)
 		SwapBuffer(false);
 	if(swapTV || (gamePadOutput && swapDRC))
 		VulkanBenchmarkPrintResults();
+#if defined(__SWITCH__)
+	if (swapMain)
+		SwitchPerf_OnPresent();
+#endif
 #if defined(__SWITCH__)
 	if (m_guestBuffers)
 	{
@@ -4399,8 +4417,21 @@ void VulkanRenderer::bufferCache_init(const sint32 bufferSize)
 #endif
 				LatteBufferCache_setHostMemorySync(m_importedMemBaseAddress, (uint32)hostAllocationSize);
 #if defined(__SWITCH__)
-				const uint32 cacheSize = std::min(static_cast<uint32>(bufferSize), 64u * 1024 * 1024);
-				m_guestBuffers = std::make_unique<VKRGuestBufferCache>(*this, cacheSize, m_featureControl.limits.minUniformBufferOffsetAlignment);
+				uint32 cacheSize = 0;
+				for (const uint32 megabytes : {256u, 128u, 64u})
+				{
+					cacheSize = std::min(static_cast<uint32>(bufferSize), megabytes * 1024 * 1024);
+					try
+					{
+						m_guestBuffers = std::make_unique<VKRGuestBufferCache>(*this, cacheSize, m_featureControl.limits.minUniformBufferOffsetAlignment);
+						break;
+					}
+					catch (const std::bad_alloc&)
+					{
+						if (megabytes == 64u)
+							throw;
+					}
+				}
 				cemuLog_log(LogType::Force, "Host memory import: active, MEM2 imported with {} MB versioned vertex/uniform snapshots", cacheSize / (1024 * 1024));
 #else
 				cemuLog_log(LogType::Force, "Host memory import: active, MEM2 imported directly; skipped {}MB vertex/uniform buffer cache", bufferSize / (1024 * 1024));
@@ -4523,7 +4554,7 @@ void VulkanRenderer::bufferCache_copyStreamoutToMainBuffer(uint32 srcOffset, uin
 #if defined(__SWITCH__)
 	if (m_useHostMemoryForCache)
 	{
-		NotifyGuestReadback();
+		NotifyGuestReadback(true);
 		bufferCache_invalidate(dstOffset, size);
 	}
 #endif

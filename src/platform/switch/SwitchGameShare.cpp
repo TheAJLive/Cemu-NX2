@@ -23,6 +23,10 @@ namespace
 {
 constexpr const char* kErrorLogPath = "sdmc:/switch/cemu/gameshare-error.log";
 constexpr const char* kLogPath = "sdmc:/switch/cemu/gameshare-log.txt";
+constexpr const char* kOldLogPath = "sdmc:/switch/cemu/gameshare-log-old.txt";
+const Result kAppletBadExit = MAKERESULT(Module_Libnx, LibnxError_LibAppletBadExit);
+const Result kAppletBadReply = MAKERESULT(Module_Libnx, LibnxError_BadAppletReceiveMessage);
+const Result kCloseTimeout = MAKERESULT(Module_Libnx, LibnxError_Timeout);
 
 std::atomic_bool s_requested{false};
 std::atomic_bool s_swapRoles{false};
@@ -48,8 +52,12 @@ std::atomic<uint32_t> s_audioDropped{0};
 void OpenLog()
 {
 	std::scoped_lock lock(s_logMutex);
-	if (!s_log)
-		s_log = std::fopen(kLogPath, "w");
+	if (s_log)
+		return;
+	// Keep the last run's log, a cancelled session goes back to the launcher and the next start would wipe it.
+	std::remove(kOldLogPath);
+	std::rename(kLogPath, kOldLogPath);
+	s_log = std::fopen(kLogPath, "w");
 }
 
 void Log(const char* format, ...)
@@ -210,7 +218,16 @@ SwitchGameShareResult SwitchGameShare_Begin(std::string& error)
 	s_hostOpen = true;
 	const Result rc = gameshareHostCreate(&s_host, &config);
 	Log("gameshareHostCreate (mode %d) -> 0x%08x", (int)config.mode, (unsigned)rc);
-	if (rc == GAMESHARE_RESULT_MATCHMAKING_CANCELLED)
+	// Only the matchmaking applet gives these. Closing it with HOME or B can end it abnormally instead of
+	// as a cancel, and then gameshareHostClose doesn't end the matchmaking, so do that here.
+	if (rc == kAppletBadExit || rc == kAppletBadReply)
+	{
+		Log("matchmaking applet didn't exit normally, treating it as cancelled");
+		std::scoped_lock lock(s_hostMutex);
+		Log("end matchmaking -> 0x%08x", (unsigned)stplEndMatchmaking());
+		Log("release guest work memory -> 0x%08x", (unsigned)stplReleaseGuestWorkMemory());
+	}
+	if (rc == GAMESHARE_RESULT_MATCHMAKING_CANCELLED || rc == kAppletBadExit || rc == kAppletBadReply)
 	{
 		SwitchGameShare_End();
 		return SwitchGameShareResult::Cancelled;
@@ -248,6 +265,12 @@ void SwitchGameShare_End()
 	{
 		std::scoped_lock lock(s_hostMutex);
 		rc = gameshareHostClose(&s_host);
+		// Timeout means the service hasn't given the work memory back yet. Each call waits about a second.
+		for (int attempt = 0; rc == kCloseTimeout && attempt < 5; attempt++)
+		{
+			Log("work memory not returned yet, waiting again");
+			rc = gameshareHostClose(&s_host);
+		}
 	}
 	Log("session closed -> 0x%08x (guest audio written %u, dropped %u)", (unsigned)rc, s_audioWritten.load(),
 	    s_audioDropped.load());

@@ -83,6 +83,7 @@ typedef struct
 		// GPU
 		uint32 lastUpdate;
 		uint32 frameCounter;
+		uint32 renderedFrameCounter; // swaps that showed a new image
 		uint32 drawCallCounter;
 		uint32 fastDrawCallCounter;
 		uint32 shaderBindCount;

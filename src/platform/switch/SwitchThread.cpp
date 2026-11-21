@@ -19,7 +19,20 @@ namespace
 	constexpr uint32_t kAllCoreMask = (1u << kMaxCores) - 1;
 	constexpr uint32_t kDefaultHelperCoreMask = 0b1000u;
 
-	constexpr int32_t kBackgroundPriority = 63;
+	// Priority 63 is the lowest Horizon has, but a process may only use the
+	// priorities in its priority mask, and asking for one outside it fails.
+	int32_t BackgroundPriority()
+	{
+		static const int32_t priority = [] {
+			uint64_t mask = 0;
+			if (R_FAILED(svcGetInfo(&mask, InfoType_PriorityMask, CUR_PROCESS_HANDLE, 0)) || mask == 0)
+				return 63;
+			const int32_t lowest = 63 - __builtin_clzll(mask);
+			cemuLog_log(LogType::Force, "Switch: thread priority mask 0x{:016x}, background priority {}", mask, lowest);
+			return lowest;
+		}();
+		return priority;
+	}
 
 	uint32_t ProcessCoreMask()
 	{
@@ -151,9 +164,23 @@ bool SwitchThread_PinToHelperCore(const char* what, int32_t priority)
 
 void SwitchThread_AllowHelperCore(const char* what)
 {
-	if (R_FAILED(svcSetThreadCoreMask(CUR_THREAD_HANDLE, kIdealCoreDontCare, ProcessCoreMask())))
+#if defined(__SWITCH2__)
+	// Background work stays off the three Espresso cores and off the GPU thread's core.
+	uint32_t mask = ProcessCoreMask() & ~kAppCoreMask;
+	if (__builtin_popcount(mask) > 1)
+		mask &= mask - 1;
+	if (mask == 0)
+		mask = ProcessCoreMask();
+#else
+	const uint32_t mask = ProcessCoreMask();
+#endif
+	if (R_FAILED(svcSetThreadCoreMask(CUR_THREAD_HANDLE, kIdealCoreDontCare, mask)))
 		SwitchThread_PinToAppCores(what);
 
-	if (R_FAILED(svcSetThreadPriority(CUR_THREAD_HANDLE, static_cast<u32>(kBackgroundPriority))))
-		cemuLog_log(LogType::Force, "Switch: could not lower {} to background priority", what);
+	const int32_t priority = BackgroundPriority();
+	const Result rc = svcSetThreadPriority(CUR_THREAD_HANDLE, static_cast<u32>(priority));
+	if (R_FAILED(rc))
+		cemuLog_log(LogType::Force, "Switch: could not lower {} to priority {} (rc=0x{:08x})", what, priority, rc);
+	else
+		cemuLog_log(LogType::Force, "Switch: {} runs on core mask 0b{:b} at priority {}", what, mask, priority);
 }

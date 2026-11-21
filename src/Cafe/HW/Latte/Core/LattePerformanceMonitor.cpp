@@ -62,6 +62,8 @@ void LattePerformanceMonitor_frameEnd()
 		elapsedFrames = std::max<uint32>(elapsedFrames, 1);
 		elapsedFrames2S = performanceMonitor.cycle[(performanceMonitor.cycleIndex + PERFORMANCE_MONITOR_TRACK_CYCLES - 0) % PERFORMANCE_MONITOR_TRACK_CYCLES].frameCounter;
 		elapsedFrames2S += performanceMonitor.cycle[(performanceMonitor.cycleIndex + PERFORMANCE_MONITOR_TRACK_CYCLES - 1) % PERFORMANCE_MONITOR_TRACK_CYCLES].frameCounter;
+		uint32 renderedFrames2S = performanceMonitor.cycle[(performanceMonitor.cycleIndex + PERFORMANCE_MONITOR_TRACK_CYCLES - 0) % PERFORMANCE_MONITOR_TRACK_CYCLES].renderedFrameCounter;
+		renderedFrames2S += performanceMonitor.cycle[(performanceMonitor.cycleIndex + PERFORMANCE_MONITOR_TRACK_CYCLES - 1) % PERFORMANCE_MONITOR_TRACK_CYCLES].renderedFrameCounter;
 		elapsedFrames2S = std::max<uint32>(elapsedFrames2S, 1);
 		// calculate stats
 		uint64 passedCycles = PPCInterpreter_getMainCoreCycleCounter() - performanceMonitor.cycle[(performanceMonitor.cycleIndex + 1) % PERFORMANCE_MONITOR_TRACK_CYCLES].lastCycleCount;
@@ -76,6 +78,7 @@ void LattePerformanceMonitor_frameEnd()
 		uint64 indexDataUploadPerFrame = (indexDataUploaded / (uint64)elapsedFrames);
 
 		double fps = (double)elapsedFrames2S * 1000.0 / (double)totalElapsedTimeFPS;
+		LatteOverlay_setRenderedFps((double)renderedFrames2S * 1000.0 / (double)totalElapsedTimeFPS);
 		uint32 shaderBindsPerFrame = shaderBindCounter / elapsedFrames;
 		passedCycles = passedCycles * 1000ULL / totalElapsedTime;
 		uint32 rlps = (uint32)((uint64)recompilerLeaveCount * 1000ULL / (uint64)totalElapsedTime);
@@ -87,6 +90,7 @@ void LattePerformanceMonitor_frameEnd()
 		performanceMonitor.cycle[nextCycleIndex].drawCallCounter = 0;
 		performanceMonitor.cycle[nextCycleIndex].fastDrawCallCounter = 0;
 		performanceMonitor.cycle[nextCycleIndex].frameCounter = 0;
+		performanceMonitor.cycle[nextCycleIndex].renderedFrameCounter = 0;
 		performanceMonitor.cycle[nextCycleIndex].shaderBindCount = 0;
 		performanceMonitor.cycle[nextCycleIndex].lastCycleCount = PPCInterpreter_getMainCoreCycleCounter();
 		performanceMonitor.cycle[nextCycleIndex].skippedCycles = 0;
